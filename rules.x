@@ -18,6 +18,7 @@ tokens :-
   :                                     { \p _ -> (p, Colon)}
   ";"                                   { \p _ -> (p, SemiColon)}
   "."                                   { \p _ -> (p, Period)}
+  "|"                                   { \p _ -> (p, Pipe)}
   "("                                   { \p _ -> (p, OpenParentheses)}
   ")"                                   { \p _ -> (p, CloseParentheses)}
   "["                                   { \p _ -> (p, OpenSquareBrackets)}
@@ -73,6 +74,7 @@ data Token =
   Colon   |
   SemiColon |
   Period |
+  Pipe |
   OpenParentheses |
   CloseParentheses |
   OpenSquareBrackets |
