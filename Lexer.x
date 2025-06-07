@@ -1,16 +1,16 @@
 {
-  module Main (main, Token(..), AlexPosn(..), alexScanTokens) where
+module Lexer (Token(..), AlexPosn(..), alexScanTokens, getTokens) where
+import System.IO
 }
 
 %wrapper "posn"
 
-$digit = 0-9       -- digits
-$alpha = [a-zA-Z]  -- alphabetic characters
+$D = [0-9]
+$L = [a-zA-Z]
 
 -- Alex returns in each right-hand side: AlexPosn -> String
 tokens :-
 
-  \n                                    {\p _ -> (p, LineBreak)} -- a gente vai manter isso mesmo?
   $white+                               ;
   "--".*.                               ;
   -- Punctuations / Parantheses
@@ -56,13 +56,20 @@ tokens :-
   string                                { \p _ -> (p, String) }
   float                                 { \p _ -> (p, Float) }
   -- Literals
-  $digit+	                            { \p s -> (p, IntLiteral (read s)) }
-  -- TODO: others
-  -- Others
-  $alpha [$alpha $digit \_ \']*	        { \p s -> (p, Id s) }
-  import                                { \p _ -> (p, Import) }
-  main                                  { \p _ -> (p, Main) }
+  $D+	                                  { \p s -> (p, NatLiteral (read s)) }
+  ($D+"."$D+)(e[\+\-]$D$D)?	            { \p s -> (p, FloatLiteral (read s)) }
+  \".*\"                                { \p s -> (p, StringLiteral (read s)) }
+  \'.+\'                                { \p s -> (p, CharLiteral (read s)) }
+  true|false                            { \p s -> (p, BoolLiteral $ (\b -> if b == "true" then True else False) (read s)) }
+  
+  -- missing other primary types such as unit, empty, matrix...
 
+  -- Others
+  $L[$L $D \_ \']*	                    { \p s -> (p, Id s) }
+  import                                { \p _ -> (p, Import) }
+  types\:                               { \p _ -> (p, Types) }
+  decls\:                               { \p _ -> (p, Decls) }
+  main\:                                { \p _ -> (p, Main) }
 {
 
 -- The token type:
@@ -82,7 +89,6 @@ data Token =
   OpenBrackets |
   CloseBrackets |
   Ellipsis |                        -- ...
-  LineBreak |
   -- Structures
   If  |
   Then |
@@ -111,19 +117,25 @@ data Token =
   Nat |
   Int |
   String |
+  TChar |
   Float |
   -- Literals
-  NatLiteral Int | -- vcs concordam q o NatLiteral recebe um Int?
+  NatLiteral Int |
   IntLiteral Int |
   StringLiteral String |
+  CharLiteral Char |
   FloatLiteral Float |
+  BoolLiteral Bool |
   -- Others
   Id String |
   Import |
+  Types |
+  Decls |
   Main
   deriving (Eq,Show)
 
-main = do
-  s <- getContents
-  print (alexScanTokens s)
+getTokens fn = do
+    fh <- openFile fn ReadMode;
+    s <- hGetContents fh;
+    return (alexScanTokens s)
 }
