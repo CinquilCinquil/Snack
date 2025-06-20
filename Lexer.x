@@ -1,5 +1,5 @@
 {
-module Lexer (Token(..), AlexPosn(..), alexScanTokens, getTokens) where
+module Lexer (Token(..), InfoAndToken(..), AlexPosn(..), alexScanTokens, getTokens) where
 import System.IO
 }
 
@@ -14,66 +14,67 @@ tokens :-
   $white+                               ;
   "--".*.                               ;
   -- Punctuations / Parantheses
-  ","                                   { \p _ -> (p, Comma)}
-  :                                     { \p _ -> (p, Colon)}
-  ";"                                   { \p _ -> (p, SemiColon)}
-  "."                                   { \p _ -> (p, Period)}
-  "|"                                   { \p _ -> (p, Pipe)}
-  "("                                   { \p _ -> (p, OpenParentheses)}
-  ")"                                   { \p _ -> (p, CloseParentheses)}
-  "["                                   { \p _ -> (p, OpenSquareBrackets)}
-  "]"                                   { \p _ -> (p, CloseSquareBrackets)}
-  "{"                                   { \p _ -> (p, OpenBrackets)}
-  "}"                                   { \p _ -> (p, CloseBrackets)}
-  "..."                                 { \p _ -> (p, Ellipsis)}
+  ","                                   { \p _ -> (getLC p, Comma)}
+  :                                     { \p _ -> (getLC p, Colon)}
+  ";"                                   { \p _ -> (getLC p, SemiColon)}
+  "."                                   { \p _ -> (getLC p, Period)}
+  "|"                                   { \p _ -> (getLC p, Pipe)}
+  "("                                   { \p _ -> (getLC p, OpenParentheses)}
+  ")"                                   { \p _ -> (getLC p, CloseParentheses)}
+  "["                                   { \p _ -> (getLC p, OpenSquareBrackets)}
+  "]"                                   { \p _ -> (getLC p, CloseSquareBrackets)}
+  "{"                                   { \p _ -> (getLC p, OpenBrackets)}
+  "}"                                   { \p _ -> (getLC p, CloseBrackets)}
+  "..."                                 { \p _ -> (getLC p, Ellipsis)}
   -- Structures
-  if                                    { \p _ -> (p, If) }
-  then                                  { \p _ -> (p, Then) }
-  else                                  { \p _ -> (p, Else) }
-  for                                   { \p _ -> (p, For) }
-  do                                    { \p _ -> (p, Do) }
-  in                                    { \p _ -> (p, In) }
-  while                                 { \p _ -> (p, While) }
-  switch                                { \p _ -> (p, Switch) }
-  case                                  { \p _ -> (p, Case) }
+  if                                    { \p _ -> (getLC p, If) }
+  then                                  { \p _ -> (getLC p, Then) }
+  else                                  { \p _ -> (getLC p, Else) }
+  for                                   { \p _ -> (getLC p, For) }
+  do                                    { \p _ -> (getLC p, Do) }
+  in                                    { \p _ -> (getLC p, In) }
+  while                                 { \p _ -> (getLC p, While) }
+  switch                                { \p _ -> (getLC p, Switch) }
+  case                                  { \p _ -> (getLC p, Case) }
   -- Operations / Relations
-  ":="                                  { \p _ -> (p, Assign) }
-  "="                                   { \p _ -> (p, Equals) }
-  ">"                                   { \p _ -> (p, Greater) }
-  "<"                                   { \p _ -> (p, Smaller) }
-  "+"                                   { \p _ -> (p, Sum) }
-  "-"                                   { \p _ -> (p, Minus) }
-  "/"                                   { \p _ -> (p, Div) }
-  "*"                                   { \p _ -> (p, Mult) }
-  "^"                                   { \p _ -> (p, Pow) }
+  ":="                                  { \p _ -> (getLC p, Assign) }
+  "="                                   { \p _ -> (getLC p, Equals) }
+  ">"                                   { \p _ -> (getLC p, Greater) }
+  "<"                                   { \p _ -> (getLC p, Smaller) }
+  "+"                                   { \p _ -> (getLC p, Sum) }
+  "-"                                   { \p _ -> (getLC p, Minus) }
+  "/"                                   { \p _ -> (getLC p, Div) }
+  "*"                                   { \p _ -> (getLC p, Mult) }
+  "^"                                   { \p _ -> (getLC p, Pow) }
   -- Declarations
-  fun                                   { \p _ -> (p, Fun) }
-  vars                                  { \p _ -> (p, Vars) }
+  fun                                   { \p _ -> (getLC p, Fun) }
+  vars                                  { \p _ -> (getLC p, Vars) }
   -- Types
-  type                                  { \p s -> (p, Type s) }
-  nat                                   { \p _ -> (p, Nat) }
-  int                                   { \p _ -> (p, Int) }
-  string                                { \p _ -> (p, String) }
-  float                                 { \p _ -> (p, Float) }
+  type                                  { \p s -> (getLC p, Type s) }
+  nat                                   { \p _ -> (getLC p, Nat) }
+  int                                   { \p _ -> (getLC p, Int) }
+  string                                { \p _ -> (getLC p, String) }
+  float                                 { \p _ -> (getLC p, Float) }
+  bool                                  { \p _ -> (getLC p, Bool) }
   -- Literals
-  $D+	                                  { \p s -> (p, NatLiteral (read s)) }
-  ($D+"."$D+)(e[\+\-]$D$D)?	            { \p s -> (p, FloatLiteral (read s)) }
-  \".*\"                                { \p s -> (p, StringLiteral (read s)) }
-  \'.+\'                                { \p s -> (p, CharLiteral (read s)) }
-  true|false                            { \p s -> (p, BoolLiteral $ (\b -> if b == "true" then True else False) (read s)) }
+  $D+	                                  { \p s -> (getLC p, NatLiteral (read s)) }
+  ($D+"."$D+)(e[\+\-]$D$D)?	            { \p s -> (getLC p, FloatLiteral (read s)) }
+  \".*\"                                { \p s -> (getLC p, StringLiteral (read s)) }
+  \'.+\'                                { \p s -> (getLC p, CharLiteral (read s)) }
+  true|false                            { \p s -> (getLC p, BoolLiteral $ (\b -> if b == "true" then True else False) (read s)) }
   
   -- missing other primary types such as unit, empty, matrix...
 
   -- Others
-  $L[$L $D \_ \']*	                    { \p s -> (p, Id s) }
-  import                                { \p _ -> (p, Import) }
-  types\:                               { \p _ -> (p, Types) }
-  decls\:                               { \p _ -> (p, Decls) }
-  main\:                                { \p _ -> (p, Main) }
+  $L[$L $D \_ \']*	                    { \p s -> (getLC p, Id s) }
+  import                                { \p _ -> (getLC p, Import) }
+  types:                                { \p _ -> (getLC p, Types) }
+  decls:                                { \p _ -> (getLC p, Decls) }
+  main:                                 { \p _ -> (getLC p, Main) }
 {
 
 -- The token type:
-type TokenAndInfo = (AlexPosn, Token)
+type InfoAndToken = ((Int, Int), Token)
 
 data Token =
   -- Punctuations / Parantheses
@@ -119,6 +120,7 @@ data Token =
   String |
   TChar |
   Float |
+  Bool |
   -- Literals
   NatLiteral Int |
   IntLiteral Int |
@@ -133,6 +135,8 @@ data Token =
   Decls |
   Main
   deriving (Eq,Show)
+
+getLC (AlexPn _ l c) = (l, c)
 
 getTokens fn = do
     fh <- openFile fn ReadMode;

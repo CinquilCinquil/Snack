@@ -4,13 +4,13 @@ import Lexer
 import Text.Parsec
 import Control.Monad.IO.Class
 
-update_pos :: SourcePos -> Token -> [Token] -> SourcePos
+update_pos :: SourcePos -> InfoAndToken -> [InfoAndToken] -> SourcePos
 update_pos pos _ (next:_) = incSourceColumn pos 1  -- Avança um token
 update_pos pos _ []       = pos                    -- Fim do código-fonte
 
-tokenParser :: Token -> ParsecT [Token] st IO (Token)
+tokenParser :: Token -> ParsecT [InfoAndToken] st IO (Token)
 tokenParser token = tokenPrim show update_pos get_token where
-  get_token token = Just token
+  get_token (info, token_) = if token_ == token then Just token else Nothing
   get_token _     = Nothing
 
 ----------- parsers para os tokens
@@ -60,9 +60,9 @@ varsToken = tokenParser Vars
 
 -- Types
 
-typeToken :: ParsecT [Token] st IO (Token)
+typeToken :: ParsecT [InfoAndToken] st IO (Token)
 typeToken = tokenPrim show update_pos get_token where
-  get_token (Type x) = Just (Type x)
+  get_token (info, Type x) = Just (Type x)
   get_token _       = Nothing
 
 natToken = tokenParser Nat
@@ -70,44 +70,45 @@ intToken = tokenParser Int
 stringToken = tokenParser String
 charToken = tokenParser TChar
 floatToken = tokenParser Float
+boolToken = tokenParser Bool
 
 -- Literals
 
-natLiteralToken :: ParsecT [Token] st IO (Token)
+natLiteralToken :: ParsecT [InfoAndToken] st IO (Token)
 natLiteralToken = tokenPrim show update_pos get_token where
-  get_token (NatLiteral x) = Just (NatLiteral x)
+  get_token (info, NatLiteral x) = Just (NatLiteral x)
   get_token _       = Nothing
 
-intLiteralToken :: ParsecT [Token] st IO (Token)
+intLiteralToken :: ParsecT [InfoAndToken] st IO (Token)
 intLiteralToken = tokenPrim show update_pos get_token where
-  get_token (IntLiteral x) = Just (IntLiteral x)
+  get_token (info, IntLiteral x) = Just (IntLiteral x)
   get_token _       = Nothing
 
-stringLiteralToken :: ParsecT [Token] st IO (Token)
+stringLiteralToken :: ParsecT [InfoAndToken] st IO (Token)
 stringLiteralToken = tokenPrim show update_pos get_token where
-  get_token (StringLiteral x) = Just (StringLiteral x)
+  get_token (info, StringLiteral x) = Just (StringLiteral x)
   get_token _       = Nothing
 
-charLiteralToken :: ParsecT [Token] st IO (Token)
+charLiteralToken :: ParsecT [InfoAndToken] st IO (Token)
 charLiteralToken = tokenPrim show update_pos get_token where
-  get_token (CharLiteral x) = Just (CharLiteral x)
+  get_token (info, CharLiteral x) = Just (CharLiteral x)
   get_token _       = Nothing
 
-floatLiteralToken :: ParsecT [Token] st IO (Token)
+floatLiteralToken :: ParsecT [InfoAndToken] st IO (Token)
 floatLiteralToken = tokenPrim show update_pos get_token where
-  get_token (FloatLiteral x) = Just (FloatLiteral x)
+  get_token (info, FloatLiteral x) = Just (FloatLiteral x)
   get_token _       = Nothing
 
-boolLiteralToken :: ParsecT [Token] st IO (Token)
+boolLiteralToken :: ParsecT [InfoAndToken] st IO (Token)
 boolLiteralToken = tokenPrim show update_pos get_token where
-  get_token (BoolLiteral x) = Just (BoolLiteral x)
+  get_token (info, BoolLiteral x) = Just (BoolLiteral x)
   get_token _       = Nothing
 
 -- Others
 
-idToken :: ParsecT [Token] st IO (Token)
+idToken :: ParsecT [InfoAndToken] st IO (Token)
 idToken = tokenPrim show update_pos get_token where
-  get_token (Id x) = Just (Id x)
+  get_token (info, Id x) = Just (Id x)
   get_token _      = Nothing
 
 importToken = tokenParser Import
