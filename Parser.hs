@@ -6,6 +6,8 @@ import Control.Monad.IO.Class
 import TokenParser
 import System.Environment
 
+--- Tipos
+
 type MyState = (Variables, Stack, Types, Subprograms, PC)
 --
 type Variables = [(Name, [Var])] -- (Scope name, Variables)
@@ -27,24 +29,25 @@ type Address = ()
 program :: ParsecT [InfoAndToken] MyState IO ([Token])
 program = do
             --a <- importToken
-            b <- typesToken
-            c <- declarations
-            d <- mainToken
+            b <- typesToken -- types:
+            c <- declsToken -- declarations:
+            d <- declarations
+            e <- mainToken -- main:
             -- f <- stmts
             eof
-            return (b:c ++ [d])
+            return $ b:[c] ++ d ++ [e]
 
 declarations :: ParsecT [InfoAndToken] MyState IO ([Token])
-declarations = do
-                a <- declsToken
+declarations = (do
                 b <- idToken
                 c <- colonToken
                 d <- types
                 e <- semiColonToken
-                updateState(symtable_insert_variable "declarations" (b, d, get_default_value d))
+                updateState(symtable_insert_variable "$root" (b, d, get_default_value d))
                 s <- getState
                 liftIO (print s)
-                return (a:b:c:d:[e])
+                remaining_decls <- declarations
+                return (b:c:d:e:remaining_decls)) <|> (return [])
 
 types :: ParsecT [InfoAndToken] MyState IO (Token)
 types =
@@ -60,7 +63,9 @@ symtable_insert_variable scopeName var (vars, stack, types, subprograms, pc) =
 
 append_to_scope :: Name -> (Token, Token, Value) -> Variables -> Variables
 append_to_scope scopeName var [] = [(scopeName, [makeVar var])]
--- TODO: Make other cases
+append_to_scope scopeName var ((xscopeName, xvars):xs) = 
+  if scopeName == xscopeName then (xscopeName, (makeVar var):xvars):xs
+  else (xscopeName, xvars):(append_to_scope scopeName var xs)
 
 makeVar :: (Token, Token, Value) -> Var --(String, Value, MyType, Address)
 makeVar (Id name, type_, value) = (name, value, type_, ())                           

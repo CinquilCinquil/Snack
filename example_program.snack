@@ -1,4 +1,5 @@
 types:
 decls:
     a : int;
+    b : int;
 main:
