@@ -3,3 +3,4 @@ decls:
     a : int;
     b : int;
 main:
+    a := 1;
