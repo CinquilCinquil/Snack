@@ -12,7 +12,9 @@ tokenParser :: Token -> ParsecT [InfoAndToken] st IO (Token)
 tokenParser token = tokenPrim show update_pos get_token where
   get_token (info, token_) = if token_ == token then Just token else Nothing
 
------------ parsers para os tokens
+---------------------------------------------------
+----------------- Parsers for terminals
+---------------------------------------------------
 
 -- Punctuations / Parantheses
 
