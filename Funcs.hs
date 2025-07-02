@@ -102,13 +102,33 @@ get_var_info_from_scope scope_name var_name (varx:varxs) = let (namex, valuex, t
 get_value_from_exp :: [Token] -> MyState -> Token
 get_value_from_exp expression [(vars, sk, ts, sp, pc, sn)] = IntLiteral 0
 
-type_check :: Token -> MyState -> MyType -> ParsecT [InfoAndToken] MyState IO ()
-type_check (Id var_name) state _type = do
+-- pos -> State -> type checking function -> type or identifier token -> type or identifier token -> ...
+type_check :: SourcePos -> MyState -> (MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
+-- TODO: _type (Id var_name) case 
+-- TODO: (Id var_name) (Id var_name) case 
+type_check pos state check (Id var_name) _type = do
   case lookup_var var_name state of
-    (_, _, ErrorToken) -> fail (replace '%' [var_name] "Variable '%' not declared!")
-    (_, _, var_type) -> if var_type == _type
+    (_, _, ErrorToken) -> error_msg "Variable '%' not declared! Line: % Column: %" [var_name, showLine pos, showColumn pos]
+    (_, _, var_type) -> if check var_type _type
         then return ()
-        else fail (replace '%' [show var_type, show _type] "Types '%' and '%' do not match!")
+        else error_msg "Types '%' and '%' do not match! Line: % Column: %" [show var_type, show _type, showLine pos, showColumn pos]
+type_check pos state check type1 type2 = if check type1 type2 
+    then return ()
+    else error_msg "Types '%' and '%' do not match! Line: % Column: %" [show type1, show type2, showLine pos, showColumn pos]
+
+check_eq :: MyType -> MyType -> Bool
+check_eq t1 t2 = t1 == t2
+
+check_arithm :: MyType -> MyType -> Bool
+check_arithm t1 t2 = (check_eq t1 t2) && (isArithm t1) && (isArithm t2)
+
+isArithm :: MyType -> Bool
+isArithm Nat = True
+isArithm Int = True
+isArithm Float = True
+isArithm String = True
+isArithm TChar = True
+isArithm _ = False
 
 symtable_update_variable :: (Token, Value) -> MyState -> MyState
 symtable_update_variable _ s = s
@@ -125,7 +145,7 @@ get_default_value :: Token -> Token
 get_default_value Nat = NatLiteral 0
 get_default_value Int = IntLiteral 0
 get_default_value String = StringLiteral ""
-get_default_value TChar = CharLiteral 'a'
+get_default_value TChar = CharLiteral '\a'
 get_default_value Float = FloatLiteral 0.0
 get_default_value Bool = BoolLiteral False
 
@@ -145,10 +165,14 @@ remove_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = [(vars, sk, ts,
 var_error = ("", ErrorToken, ErrorToken)
 
 error_msg :: String -> [String] -> a
-error_msg msg args = error (replace '%' args msg)
+error_msg msg args = error ("\n##### ERROR ######\n\n" ++ (replace '%' args msg) ++ "\n\n##########")
 
 replace :: Char -> [String] -> String -> String
 replace _ [] msg = msg
 replace _ _ [] = []
 replace c (x:xs) (msgx:msgxs) = if c == msgx then (x ++ (replace c xs msgxs))
                                 else (msgx:replace c (x:xs) msgxs)
+
+
+showLine = show . sourceLine
+showColumn = show . sourceColumn

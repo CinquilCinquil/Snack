@@ -4,34 +4,11 @@ import Lexer
 import Text.Parsec
 import Control.Monad.IO.Class
 import TokenParser
+import Funcs -- includes types and functions
 import System.Environment
 
 ---------------------------------------------------
------------------ Types
----------------------------------------------------
-
-type MyState = [(Variables, Stack, Types, Subprograms, PC, ScopeName)] -- (..., PC, Scope name)
---
-type Variables = ScopeTree -- (Scope name, Variables)
-type Stack = [(Name, PC)]
-type Types = [(Name, [Form])]
-type Subprograms = [(Name, MyType, Args, Int)] -- (Name, return _type, arguments, start line)
-type PC = Int
-type ScopeName = [String]
---
-data ScopeTree =
-  Node Name [Var] ScopeTree -- Name  [Var]  Children
-  | NoChildren
-  deriving (Eq,Show) 
-type Name = String
-type Var = (String, Value, MyType)
-type Value = Token
-type MyType = Token
-type Form = (Name, Args)
-type Args = ()
-
----------------------------------------------------
------------------ Parsers for the non-terminals
+----------------- Parsers for non-terminals
 ---------------------------------------------------
 
 program :: ParsecT [InfoAndToken] MyState IO ([Token])
@@ -73,7 +50,6 @@ decl_or_atrib :: ParsecT [InfoAndToken] MyState IO ([Token])
 decl_or_atrib = do
                 a <- idToken
                 b <- init_or_decl a
-                print_state
                 return (a:b)
 
 init_or_decl :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
@@ -81,7 +57,8 @@ init_or_decl id_token = (do -- Assignment
                 a <- assignToken
                 (exp_type, b) <- exp_rule
                 s <- getState
-                type_check id_token s exp_type
+                pos <- getPosition
+                type_check pos s check_eq id_token exp_type
                 updateState (symtable_update_variable (id_token, get_value_from_exp b s))
                 return (a:b))
                 <|>
@@ -116,136 +93,109 @@ stmt = (do a <- decl_or_atrib; return a)
 
 types :: ParsecT [InfoAndToken] MyState IO (Token)
 types =
-  (do a <- natToken; return a) <|> (do a <- intToken; return a) <|> (do a <- stringToken; return a)
-  <|> (do a <- floatToken; return a ) <|> (do a <- charToken; return a) <|> (do a <- boolToken; return a)
-  <|> (do a <- typeToken; return a) <|> fail "Not a valid type"
-
+  (do a <- natToken; return a)
+  <|> (do a <- intToken; return a)
+  <|> (do a <- stringToken; return a)
+  <|> (do a <- floatToken; return a ) 
+  <|> (do a <- charToken; return a)
+  <|> (do a <- boolToken; return a)
+  <|> (do a <- typeToken; return a)
+  <|> fail "Not a valid type"
 
 exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
-exp_rule = return (String, [])
+exp_rule = (do a <- arithm_exp; return a) <|> (do a <- function_call; return a)
+       <|> (do
+        a <- openParenthesesToken
+        b <- exp_rule
+        c <- closeParenthesesToken
+        return b)
 
----------------------------------------------------
------------------ Functions for the symbol table
----------------------------------------------------
+term :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+term = (do a <- idToken; return (String, [a])) <|> (do (_type, a) <- literal; return (_type, [a]))
 
------------------ Insert -----------------
+function_call :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+function_call = fail "samba"
 
--- (Identifier token, Type token, value) -> ...
-symtable_insert_variable :: (Token, Token, Value) -> MyState -> MyState
-symtable_insert_variable var [(vars, sk, ts, sp, pc, scope_name)] = [(append_to_scope scope_name var vars, sk, ts, sp, pc, scope_name)]
+arithm_exp :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+arithm_exp = (do
+              (a_type, a) <- term
+              b <- arithm_exp_remaining (a_type, a)
+              return b)
+            <|> (do a <- mult_exp; return a)
 
--- Scope name -> (Identifier token, Type token, value) -> Tree node -> ...
-append_to_scope :: ScopeName -> (Token, Token, Value) -> Variables -> Variables
--- Base:
-append_to_scope (scope_namex:[]) var (Node name vars children) =
-  if scope_namex == name then (Node name (append_to_variables var vars) children) -- insertion successful
-  else error_msg "Scope '%' not found!" [scope_namex]
-append_to_scope scope_name _ NoChildren = error_msg "Scope '%' not found!" [show scope_name]
--- Induction:
-append_to_scope (scope_namex:scope_namexs) var (Node name vars children) =
-  if scope_namex == name then append_to_scope scope_namexs var children
-  else error_msg "Scope '%' not found!" [show (scope_namex:scope_namexs)]
+arithm_exp_remaining :: (MyType, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+arithm_exp_remaining (a_type, a) = (do
+              b <- sum_or_minus
+              (c_type, c) <- arithm_exp
+              s <- getState
+              pos <- getPosition
+              type_check pos s check_arithm a_type c_type
+              return (c_type, a ++ [b] ++ c))
+            <|> (return (a_type, a))
 
--- (Identifier token, Type token, value) -> ...
-append_to_variables :: (Token, Token, Value) -> [Var] -> [Var]
-append_to_variables var [] = [makeVar var]
-append_to_variables var (varx:varxs) =
-  let (Id name, _, _) = var in
-  let (namex, typex, _) = varx in
-  if name == namex then error ("Variable with name '" ++ name ++ "' already declared as " ++ (show typex) ++ " !")
-  else (varx : append_to_variables var varxs)
+mult_exp :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+mult_exp = (do
+            (a_type, a) <- term
+            b <- mult_exp_remaining (a_type, a)
+            return b)
+          <|> (do a <- pow_exp; return a)
 
--- Turns tokens into a Var type
-makeVar :: (Token, Token, Value) -> Var
-makeVar (Id name, type_, value) = (name, value, type_)
+mult_exp_remaining :: (MyType, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+mult_exp_remaining (a_type, a) = (do
+              b <- mult_or_div
+              (c_type, c) <- mult_exp
+              s <- getState
+              pos <- getPosition
+              type_check pos s check_arithm a_type c_type
+              return (c_type, a ++ [b] ++ c))
+            <|> (return (a_type, a))
 
------------------ Search -----------------
+pow_exp_remaining :: (MyType, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+pow_exp_remaining (a_type, a) = (do
+              b <- powToken
+              (c_type, c) <- pow_exp
+              s <- getState
+              pos <- getPosition
+              type_check pos s check_arithm a_type c_type
+              return (c_type, a ++ [b] ++ c))
+            <|> (return (a_type, a))
 
--- wrapper for lookup_var'
-lookup_var :: Name -> MyState -> Var
-lookup_var var_name [(vars, sk, ts, sp, pc, scope_name)] = lookup_var' var_name vars scope_name
+pow_exp :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+pow_exp = (do
+           (a_type, a) <- term
+           b <- pow_exp_remaining (a_type, a)
+           return b)
+        <|> (do a <- uminus_exp; return a)
 
--- searches tree bottom-up
-lookup_var' :: Name -> Variables -> ScopeName -> Var
-lookup_var' var_name vars [] = var_error
-lookup_var' var_name vars (scope_namex:scope_namexs) =
-  case search_scope_tree (scope_namex:scope_namexs) vars of
-    NoChildren -> var_error
-    (Node node_name node_vars _) ->
-      case get_var_info_from_scope node_name var_name node_vars of
-        (_, _, ErrorToken) -> lookup_var' var_name vars scope_namexs -- search in current scope failed, go one up
-        var -> var -- search successful
+uminus_exp :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+uminus_exp = (do
+              a <- minusToken
+              (b_type, b) <- exp_rule
+              s <- getState
+              pos <- getPosition
+              type_check pos s check_arithm b_type b_type
+              return (b_type, a:b))
+            <|> (do a <- term; return a)
 
--- searches for a certain node of the tree
-search_scope_tree :: ScopeName -> Variables -> ScopeTree
-search_scope_tree [] _ = NoChildren -- not found
-search_scope_tree _ NoChildren = NoChildren -- not found
-search_scope_tree (scope_namex:scope_namexs) (Node name vars children) = 
-  if scope_namex == name then -- search successful
-    if scope_namexs == [] then (Node name vars children) else NoChildren -- not found
-    else NoChildren -- not found
+sum_or_minus :: ParsecT [InfoAndToken] MyState IO (Token)
+sum_or_minus = (do a <- sumToken; return a) <|> (do a <- minusToken; return a)
 
--- OBS: scope_name here is not a list like in MyState, its the name of a single strucure, like 'if' or a function name
-get_var_info_from_scope :: Name -> Name -> [Var] -> Var
-get_var_info_from_scope scope_name var_name [] = var_error
-get_var_info_from_scope scope_name var_name (varx:varxs) = let (namex, valuex, typex) = varx in
-  if var_name == namex then (namex, valuex, typex) else get_var_info_from_scope scope_name var_name varxs
-
------------------ Semantic -----------------
-
-get_value_from_exp :: [Token] -> MyState -> Token
-get_value_from_exp expression [(vars, sk, ts, sp, pc, sn)] = IntLiteral 0
-
-type_check :: Token -> MyState -> MyType -> ParsecT [InfoAndToken] MyState IO ()
-type_check (Id var_name) s _type = do
-  let (p, q , var_type) = lookup_var var_name s
-  if (p == "") then fail ("Variable '" ++ var_name ++ "' not declared!")
-  else (if var_type == _type then return () else fail ("Types '" ++ (show var_type) ++ "' and '" ++ (show _type) ++ "' do not match!"))
-
-symtable_update_variable :: (Token, Value) -> MyState -> MyState
-symtable_update_variable _ s = s
-
--- TODO: adapt to MyState
---symtable_update :: MyState -> MyState -> MyState
---symtable_update _ _ = fail "variable not found"
---symtable_update (id1, v1) ((id2, v2):t) = 
-                               --if id1 == id2 then (id1, v1) : t
-                               --else (id2, v2) : symtable_update (id1, v1) t
-
---symtable_remove :: MyState -> MyState -> MyState
---symtable_remove _ _ = fail "variable not found"
---symtable_remove (id1, v1) ((id2, v2):t) = 
-                               --if id1 == id2 then t
-                               --else (id2, v2) : symtable_remove (id1, v1) t    
-
--- updateState (add_current_scope_name "sla")
-
-get_default_value :: Token -> Token
-get_default_value Int = IntLiteral 0
+mult_or_div :: ParsecT [InfoAndToken] MyState IO (Token)
+mult_or_div = (do a <- divToken; return a) <|> (do a <- multToken; return a)
 
 ----------------- Others -----------------
 
-print_state :: ParsecT [InfoAndToken] MyState IO ()
-print_state = do
-              s <- getState
-              liftIO (print s)
+--literals :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+--literals = (do a <- literal; return a) <|> (do a <- literals; return a)
 
-add_current_scope_name :: Name -> MyState -> MyState
-add_current_scope_name name [(vars, sk, ts, sp, pc, scope_name)] = [(vars, sk, ts, sp, pc, scope_name ++ [name])]
-
-remove_current_scope_name :: MyState -> MyState
-remove_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = [(vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name)]
-
-var_error = ("", ErrorToken, ErrorToken)
-
-error_msg :: String -> [String] -> a
-error_msg msg args = error (replace '%' args msg)
-
-replace :: Char -> [String] -> String -> String
-replace _ [] msg = msg
-replace _ _ [] = []
-replace c (x:xs) (msgx:msgxs) = if c == msgx then (x ++ (replace c xs msgxs))
-                                else (msgx:replace c (x:xs) msgxs)
+literal :: ParsecT [InfoAndToken] MyState IO (MyType, Token)
+literal = (do a <- natLiteralToken; return (Nat, a)) -- TODO: qnd a pessoa escreve S1 dá a entender q ela escreveu '2', mas por enquanto ela escreveu '1'. Consertar isso
+  <|> (do a <- intLiteralToken; return (Int, a))
+  <|> (do a <- stringLiteralToken; return (String, a))
+  <|> (do a <- floatLiteralToken; return (Float, a))
+  <|> (do a <- charLiteralToken; return (TChar, a))
+  <|> (do a <- boolLiteralToken; return (Bool, a))
+  <|> fail "Not a valid literal"
 
 ---------------------------------------------------
 ----------------- Parser invocation
