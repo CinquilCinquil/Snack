@@ -134,15 +134,17 @@ exp_rule = return (String, [])
 symtable_insert_variable :: (Token, Token, Value) -> MyState -> MyState
 symtable_insert_variable var [(vars, sk, ts, sp, pc, scope_name)] = [(append_to_scope scope_name var vars, sk, ts, sp, pc, scope_name)]
 
--- Scope name -> (Identifier token, Type token, value) -> ...
+-- Scope name -> (Identifier token, Type token, value) -> Tree node -> ...
 append_to_scope :: ScopeName -> (Token, Token, Value) -> Variables -> Variables
+-- Base:
 append_to_scope (scope_namex:[]) var (Node name vars children) =
-  if scope_namex == name then (Node name (append_to_variables var vars) children)
-  else error ("Scope '" ++ (show $ scope_namex) ++ "' not found !")
-append_to_scope scope_name _ NoChildren = error ("Scope '" ++ (show $ scope_name) ++ "' not found !")
+  if scope_namex == name then (Node name (append_to_variables var vars) children) -- insertion successful
+  else error_msg "Scope '%' not found!" [scope_namex]
+append_to_scope scope_name _ NoChildren = error_msg "Scope '%' not found!" [show scope_name]
+-- Induction:
 append_to_scope (scope_namex:scope_namexs) var (Node name vars children) =
   if scope_namex == name then append_to_scope scope_namexs var children
-  else error ("Scope '" ++ (show $ scope_namex:scope_namexs) ++ "' not found !")
+  else error_msg "Scope '%' not found!" [show (scope_namex:scope_namexs)]
 
 -- (Identifier token, Type token, value) -> ...
 append_to_variables :: (Token, Token, Value) -> [Var] -> [Var]
@@ -165,21 +167,23 @@ lookup_var var_name [(vars, sk, ts, sp, pc, scope_name)] = lookup_var' var_name 
 
 -- searches tree bottom-up
 lookup_var' :: Name -> Variables -> ScopeName -> Var
-lookup_var' var_name vars [] = get_var_info_from_scope "$The entire file$" var_name []
+lookup_var' var_name vars [] = var_error
 lookup_var' var_name vars (scope_namex:scope_namexs) =
-  do
   case search_scope_tree (scope_namex:scope_namexs) vars of
-    NoChildren -> var_error;
-    (Node namex varsx childrenx) -> let (namey, typey, valuey) = get_var_info_from_scope namex var_name varsx in 
-      if namey == "" then lookup_var' var_name vars scope_namexs else (namey, typey, valuey)
+    NoChildren -> var_error
+    (Node node_name node_vars _) ->
+      case get_var_info_from_scope node_name var_name node_vars of
+        (_, _, ErrorToken) -> lookup_var' var_name vars scope_namexs -- search in current scope failed, go one up
+        var -> var -- search successful
 
 -- searches for a certain node of the tree
 search_scope_tree :: ScopeName -> Variables -> ScopeTree
-search_scope_tree [] node = node
-search_scope_tree scope_name NoChildren = error ("Scope '" ++ (show $ scope_name) ++ "' not found !")
+search_scope_tree [] _ = NoChildren -- not found
+search_scope_tree _ NoChildren = NoChildren -- not found
 search_scope_tree (scope_namex:scope_namexs) (Node name vars children) = 
-  if scope_namex == name then search_scope_tree scope_namexs children
-  else error ("Scope '" ++ (show $ scope_namex:scope_namexs) ++ "' not found !")
+  if scope_namex == name then -- search successful
+    if scope_namexs == [] then (Node name vars children) else NoChildren -- not found
+    else NoChildren -- not found
 
 -- OBS: scope_name here is not a list like in MyState, its the name of a single strucure, like 'if' or a function name
 get_var_info_from_scope :: Name -> Name -> [Var] -> Var
@@ -193,12 +197,10 @@ get_value_from_exp :: [Token] -> MyState -> Token
 get_value_from_exp expression [(vars, sk, ts, sp, pc, sn)] = IntLiteral 0
 
 type_check :: Token -> MyState -> MyType -> ParsecT [InfoAndToken] MyState IO ()
-type_check (Id var_name) s _type =
-  case lookup_var var_name s of
-    var_error -> fail ("Variable '" ++ var_name ++ "' not declared!");
-    (_, _, var_type) -> if var_type == _type
-      then return ()
-      else fail ("Types '" ++ (show var_type) ++ "' and '" ++ (show _type) ++ "' do not match!")
+type_check (Id var_name) s _type = do
+  let (p, q , var_type) = lookup_var var_name s
+  if (p == "") then fail ("Variable '" ++ var_name ++ "' not declared!")
+  else (if var_type == _type then return () else fail ("Types '" ++ (show var_type) ++ "' and '" ++ (show _type) ++ "' do not match!"))
 
 symtable_update_variable :: (Token, Value) -> MyState -> MyState
 symtable_update_variable _ s = s
@@ -235,6 +237,15 @@ remove_current_scope_name :: MyState -> MyState
 remove_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = [(vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name)]
 
 var_error = ("", ErrorToken, ErrorToken)
+
+error_msg :: String -> [String] -> a
+error_msg msg args = error (replace '%' args msg)
+
+replace :: Char -> [String] -> String -> String
+replace _ [] msg = msg
+replace _ _ [] = []
+replace c (x:xs) (msgx:msgxs) = if c == msgx then (x ++ (replace c xs msgxs))
+                                else (msgx:replace c (x:xs) msgxs)
 
 ---------------------------------------------------
 ----------------- Parser invocation
