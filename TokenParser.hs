@@ -5,13 +5,12 @@ import Text.Parsec
 import Control.Monad.IO.Class
 
 update_pos :: SourcePos -> InfoAndToken -> [InfoAndToken] -> SourcePos
-update_pos pos _ (next:_) = incSourceColumn pos 1  -- Avança um token
+update_pos pos _ (((nextline, nextcolumn), _):_) = setSourceColumn (setSourceLine pos nextline) nextcolumn
 update_pos pos _ []       = pos                    -- Fim do código-fonte
 
 tokenParser :: Token -> ParsecT [InfoAndToken] st IO (Token)
 tokenParser token = tokenPrim show update_pos get_token where
   get_token (info, token_) = if token_ == token then Just token else Nothing
-  get_token _     = Nothing
 
 ----------- parsers para os tokens
 

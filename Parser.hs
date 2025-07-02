@@ -10,7 +10,7 @@ import System.Environment
 ----------------- Types
 ---------------------------------------------------
 
-type MyState = (Variables, Stack, Types, Subprograms, PC, ScopeName) -- (..., PC, Scope name)
+type MyState = [(Variables, Stack, Types, Subprograms, PC, ScopeName)] -- (..., PC, Scope name)
 --
 type Variables = ScopeTree -- (Scope name, Variables)
 type Stack = [(Name, PC)]
@@ -132,17 +132,17 @@ exp_rule = return (String, [])
 
 -- (Identifier token, Type token, value) -> ...
 symtable_insert_variable :: (Token, Token, Value) -> MyState -> MyState
-symtable_insert_variable var (vars, sk, ts, sp, pc, scope_name) = (append_to_scope scope_name var vars, sk, ts, sp, pc, scope_name)
+symtable_insert_variable var [(vars, sk, ts, sp, pc, scope_name)] = [(append_to_scope scope_name var vars, sk, ts, sp, pc, scope_name)]
 
 -- Scope name -> (Identifier token, Type token, value) -> ...
 append_to_scope :: ScopeName -> (Token, Token, Value) -> Variables -> Variables
 append_to_scope (scope_namex:[]) var (Node name vars children) =
   if scope_namex == name then (Node name (append_to_variables var vars) children)
-  else error ("Scope " ++ (show $ scope_namex) ++ " not found !")
-append_to_scope scope_name _ NoChildren = error ("Scope " ++ (show $ scope_name) ++ " not found !")
+  else error ("Scope '" ++ (show $ scope_namex) ++ "' not found !")
+append_to_scope scope_name _ NoChildren = error ("Scope '" ++ (show $ scope_name) ++ "' not found !")
 append_to_scope (scope_namex:scope_namexs) var (Node name vars children) =
   if scope_namex == name then append_to_scope scope_namexs var children
-  else error ("Scope " ++ (show $ scope_namex:scope_namexs) ++ " not found !")
+  else error ("Scope '" ++ (show $ scope_namex:scope_namexs) ++ "' not found !")
 
 -- (Identifier token, Type token, value) -> ...
 append_to_variables :: (Token, Token, Value) -> [Var] -> [Var]
@@ -150,7 +150,7 @@ append_to_variables var [] = [makeVar var]
 append_to_variables var (varx:varxs) =
   let (Id name, _, _) = var in
   let (namex, typex, _) = varx in
-  if name == namex then error ("Variable with name " ++ name ++ " already declared as " ++ (show typex) ++ " !")
+  if name == namex then error ("Variable with name '" ++ name ++ "' already declared as " ++ (show typex) ++ " !")
   else (varx : append_to_variables var varxs)
 
 -- Turns tokens into a Var type
@@ -161,7 +161,7 @@ makeVar (Id name, type_, value) = (name, value, type_)
 
 -- wrapper for lookup_var'
 lookup_var :: Name -> MyState -> Var
-lookup_var var_name (vars, sk, ts, sp, pc, scope_name) = lookup_var' var_name vars scope_name
+lookup_var var_name [(vars, sk, ts, sp, pc, scope_name)] = lookup_var' var_name vars scope_name
 
 -- searches tree bottom-up
 lookup_var' :: Name -> Variables -> ScopeName -> Var
@@ -176,10 +176,10 @@ lookup_var' var_name vars (scope_namex:scope_namexs) =
 -- searches for a certain node of the tree
 search_scope_tree :: ScopeName -> Variables -> ScopeTree
 search_scope_tree [] node = node
-search_scope_tree scope_name NoChildren = error ("Scope " ++ (show $ scope_name) ++ " not found !")
+search_scope_tree scope_name NoChildren = error ("Scope '" ++ (show $ scope_name) ++ "' not found !")
 search_scope_tree (scope_namex:scope_namexs) (Node name vars children) = 
   if scope_namex == name then search_scope_tree scope_namexs children
-  else error ("Scope " ++ (show $ scope_namex:scope_namexs) ++ " not found !")
+  else error ("Scope '" ++ (show $ scope_namex:scope_namexs) ++ "' not found !")
 
 -- OBS: scope_name here is not a list like in MyState, its the name of a single strucure, like 'if' or a function name
 get_var_info_from_scope :: Name -> Name -> [Var] -> Var
@@ -190,15 +190,15 @@ get_var_info_from_scope scope_name var_name (varx:varxs) = let (namex, valuex, t
 ----------------- Semantic -----------------
 
 get_value_from_exp :: [Token] -> MyState -> Token
-get_value_from_exp expression (vars, sk, ts, sp, pc, sn) = IntLiteral 0
+get_value_from_exp expression [(vars, sk, ts, sp, pc, sn)] = IntLiteral 0
 
 type_check :: Token -> MyState -> MyType -> ParsecT [InfoAndToken] MyState IO ()
 type_check (Id var_name) s _type =
   case lookup_var var_name s of
-    var_error -> fail ("Variable " ++ var_name ++ " not declared!");
+    var_error -> fail ("Variable '" ++ var_name ++ "' not declared!");
     (_, _, var_type) -> if var_type == _type
       then return ()
-      else fail ("Types " ++ (show var_type) ++ " and " ++ (show _type) ++ " do not match!")
+      else fail ("Types '" ++ (show var_type) ++ "' and '" ++ (show _type) ++ "' do not match!")
 
 symtable_update_variable :: (Token, Value) -> MyState -> MyState
 symtable_update_variable _ s = s
@@ -229,10 +229,10 @@ print_state = do
               liftIO (print s)
 
 add_current_scope_name :: Name -> MyState -> MyState
-add_current_scope_name name (vars, sk, ts, sp, pc, scope_name) = (vars, sk, ts, sp, pc, scope_name ++ [name])
+add_current_scope_name name [(vars, sk, ts, sp, pc, scope_name)] = [(vars, sk, ts, sp, pc, scope_name ++ [name])]
 
 remove_current_scope_name :: MyState -> MyState
-remove_current_scope_name (vars, sk, ts, sp, pc, scope_name) = (vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name)
+remove_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = [(vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name)]
 
 var_error = ("", ErrorToken, ErrorToken)
 
@@ -240,7 +240,7 @@ var_error = ("", ErrorToken, ErrorToken)
 ----------------- Parser invocation
 ---------------------------------------------------
 
-initialState = (Node "root" [] NoChildren, [], [], [], 0, ["root"])
+initialState = [(Node "root" [] NoChildren, [], [], [], 0, ["root"])]
 
 parser :: [InfoAndToken] -> IO (Either ParseError [Token])
 parser tokens = runParserT program initialState "Parsing error!" tokens
