@@ -122,7 +122,7 @@ types =
 
 
 exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
-exp_rule = fail "booo"
+exp_rule = return (String, [])
 
 ---------------------------------------------------
 ----------------- Functions for the symbol table
@@ -159,19 +159,21 @@ makeVar (Id name, type_, value) = (name, value, type_)
 
 ----------------- Search -----------------
 
+-- wrapper for lookup_var'
 lookup_var :: Name -> MyState -> Var
 lookup_var var_name (vars, sk, ts, sp, pc, scope_name) = lookup_var' var_name vars scope_name
 
+-- searches tree bottom-up
 lookup_var' :: Name -> Variables -> ScopeName -> Var
 lookup_var' var_name vars [] = get_var_info_from_scope "$The entire file$" var_name []
 lookup_var' var_name vars (scope_namex:scope_namexs) =
   do
-  let (Node namex varsx childrenx) = search_scope_tree (scope_namex:scope_namexs) vars in
-    let (namey, typey, valuey) = get_var_info_from_scope namex var_name varsx in
+  case search_scope_tree (scope_namex:scope_namexs) vars of
+    NoChildren -> var_error;
+    (Node namex varsx childrenx) -> let (namey, typey, valuey) = get_var_info_from_scope namex var_name varsx in 
       if namey == "" then lookup_var' var_name vars scope_namexs else (namey, typey, valuey)
 
--- error ("Variable " ++ var_name ++ " not declared in scope " ++ scope_name ++ "!")
-
+-- searches for a certain node of the tree
 search_scope_tree :: ScopeName -> Variables -> ScopeTree
 search_scope_tree [] node = node
 search_scope_tree scope_name NoChildren = error ("Scope " ++ (show $ scope_name) ++ " not found !")
@@ -181,7 +183,7 @@ search_scope_tree (scope_namex:scope_namexs) (Node name vars children) =
 
 -- OBS: scope_name here is not a list like in MyState, its the name of a single strucure, like 'if' or a function name
 get_var_info_from_scope :: Name -> Name -> [Var] -> Var
-get_var_info_from_scope scope_name var_name [] = ("", ErrorToken, ErrorToken)
+get_var_info_from_scope scope_name var_name [] = var_error
 get_var_info_from_scope scope_name var_name (varx:varxs) = let (namex, valuex, typex) = varx in
   if var_name == namex then (namex, valuex, typex) else get_var_info_from_scope scope_name var_name varxs
 
@@ -191,8 +193,12 @@ get_value_from_exp :: [Token] -> MyState -> Token
 get_value_from_exp expression (vars, sk, ts, sp, pc, sn) = IntLiteral 0
 
 type_check :: Token -> MyState -> MyType -> ParsecT [InfoAndToken] MyState IO ()
-type_check (Id var_name) s _type = let (_, _, var_type) = (lookup_var var_name s) in
-  if var_type == _type then return () else fail ("Types " ++ (show var_type) ++ " and " ++ (show _type) ++ " do not match!")
+type_check (Id var_name) s _type =
+  case lookup_var var_name s of
+    var_error -> fail ("Variable " ++ var_name ++ " not declared!");
+    (_, _, var_type) -> if var_type == _type
+      then return ()
+      else fail ("Types " ++ (show var_type) ++ " and " ++ (show _type) ++ " do not match!")
 
 symtable_update_variable :: (Token, Value) -> MyState -> MyState
 symtable_update_variable _ s = s
@@ -227,6 +233,8 @@ add_current_scope_name name (vars, sk, ts, sp, pc, scope_name) = (vars, sk, ts, 
 
 remove_current_scope_name :: MyState -> MyState
 remove_current_scope_name (vars, sk, ts, sp, pc, scope_name) = (vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name)
+
+var_error = ("", ErrorToken, ErrorToken)
 
 ---------------------------------------------------
 ----------------- Parser invocation
