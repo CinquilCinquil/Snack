@@ -133,7 +133,8 @@ data Token =
   Import |
   Types |
   Decls |
-  Main
+  Main |
+  ErrorToken
   deriving (Eq,Show)
 
 getLC (AlexPn _ l c) = (l, c)
