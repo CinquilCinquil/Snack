@@ -94,12 +94,12 @@ lookup_var var_name [(vars, sk, ts, sp, pc, scope_name)] = lookup_var' var_name 
 -- searches tree bottom-up
 lookup_var' :: Name -> Variables -> ScopeName -> Var
 lookup_var' var_name vars [] = var_error
-lookup_var' var_name vars (scope_namex:scope_namexs) =
-  case search_scope_tree (scope_namex:scope_namexs) vars of
+lookup_var' var_name vars scope_name =
+  case search_scope_tree scope_name vars of
     NoChildren -> var_error
     (Node node_name node_vars _) ->
       case get_var_info_from_scope node_name var_name node_vars of
-        (_, _, ErrorToken) -> lookup_var' var_name vars scope_namexs -- search in current scope failed, go one up
+        (_, _, ErrorToken) -> lookup_var' var_name vars (reverse $ tail $ reverse scope_name) -- search in current scope failed, go one up
         var -> var -- search successful
 
 -- searches for a certain node of the tree
@@ -108,7 +108,7 @@ search_scope_tree [] _ = NoChildren -- not found
 search_scope_tree _ NoChildren = NoChildren -- not found
 search_scope_tree (scope_namex:scope_namexs) (Node name vars children) = 
   if scope_namex == name then -- search successful
-    if scope_namexs == [] then (Node name vars children) else NoChildren -- not found
+    if scope_namexs == [] then (Node name vars children) else search_scope_tree scope_namexs children
     else NoChildren -- not found
 
 -- OBS: scope_name here is not a list like in MyState, its the name of a single strucure, like 'if' or a function name
@@ -116,6 +116,45 @@ get_var_info_from_scope :: Name -> Name -> [Var] -> Var
 get_var_info_from_scope scope_name var_name [] = var_error
 get_var_info_from_scope scope_name var_name (varx:varxs) = let (namex, typex, valuex) = varx in
   if var_name == namex then (namex, typex, valuex) else get_var_info_from_scope scope_name var_name varxs
+
+----------------- Update -------------------
+
+-- wrapper for symtable_update_variable'
+symtable_update_variable :: (Token, Value) -> MyState -> MyState
+symtable_update_variable (Id var_name, value) [(vars, sk, ts, sp, pc, scope_name)] = do
+  [(symtable_update_variable' scope_name (var_name, value) vars, sk, ts, sp, pc, scope_name)]
+
+-- (variable name, value) -> ...
+update_in_variables :: (Name, Value) -> [Var] -> [Var]
+update_in_variables _ [] = []
+update_in_variables (name, value) (varx:varxs) =
+  let (namex, typex, _) = varx in
+  if name == namex then ((namex, typex, value):varxs) else (varx : update_in_variables (name, value) varxs)
+
+-- updates tree bottom-up
+symtable_update_variable' :: ScopeName -> (Name, Value) -> Variables -> Variables
+symtable_update_variable' _ (name, _) NoChildren = error_msg "Variable '%' not found" [name]
+symtable_update_variable' [] (name, _) _ = error_msg "Variable '%' not found" [name]
+symtable_update_variable' scope_name var vars =
+  case update_scope_tree scope_name vars var of
+    NoChildren -> symtable_update_variable' (reverse $ tail $ reverse scope_name) var vars -- search in current scope failed, go one up
+    new_vars -> new_vars -- search successful
+
+-- updates a certain node of the tree
+update_scope_tree :: ScopeName -> Variables -> (Name, Value) -> ScopeTree
+update_scope_tree [] _ _ = NoChildren -- not found
+update_scope_tree _ NoChildren _ = NoChildren -- not found
+update_scope_tree (scope_namex:scope_namexs) (Node name vars children) var = 
+  if scope_namex == name then -- search successful
+    if scope_namexs == [] then (Node name (update_in_variables var vars) children) else (Node name vars (update_scope_tree scope_namexs children var))
+    else NoChildren -- not found
+
+-- TODO:
+--symtable_remove :: MyState -> MyState -> MyState
+--symtable_remove _ _ = fail "variable not found"
+--symtable_remove (id1, v1) ((id2, v2):t) = 
+                               --if id1 == id2 then t
+                               --else (id2, v2) : symtable_remove (id1, v1) t   
 
 ----------------- Semantic -----------------
 
@@ -132,7 +171,6 @@ type_check pos state check (Id var_name) _type = do
     (_, var_type, _) -> if check pos var_type _type then return () else error ""
 type_check pos state check type1 type2 = if check pos type1 type2 then return () else error ""
     
-
 check_eq :: SourcePos -> MyType -> MyType -> Bool
 check_eq pos t1 t2 = if t1 == t2 then True
 else error_msg "Types '%' and '%' do not match! Line: % Column: %" [show t1, show t2, showLine pos, showColumn pos]
@@ -145,39 +183,7 @@ isArithm :: MyType -> Bool
 isArithm Nat = True
 isArithm Int = True
 isArithm Float = True
-isArithm _ = False
-
-symtable_update_variable :: (Token, Value) -> MyState -> MyState
-symtable_update_variable (Id var_name, value) [(vars, sk, ts, sp, pc, scope_name)] = do
-  [(update_in_scope scope_name (var_name, value) vars, sk, ts, sp, pc, scope_name)]
-
--- Scope name -> (var name, value) -> Tree node -> ...
-update_in_scope :: ScopeName -> (Name, Value) -> Variables -> Variables
--- Base:
-update_in_scope (scope_namex:[]) var (Node name vars children) =
-  if scope_namex == name then (Node name (update_in_variables var vars) children) -- update successful
-  else error_msg "In var update, scope '%' not found!" [scope_namex]
-update_in_scope scope_name _ NoChildren = error_msg "In var update, scope '%' not found!" [show scope_name]
--- Induction:
-update_in_scope (scope_namex:scope_namexs) var (Node name vars children) =
-  if scope_namex == name then (Node name vars (update_in_scope scope_namexs var children))
-  else error_msg "In var update, scope '%' not found!" [show (scope_namex:scope_namexs)]
-
--- (var name, value) -> ...
-update_in_variables :: (Name, Value) -> [Var] -> [Var]
-update_in_variables (name, _) [] = error_msg "Variable with name '%' not found" [name]
-update_in_variables (name, value) (varx:varxs) =
-  let (namex, typex, _) = varx in
-  if name == namex then ((namex, typex, value):varxs) else (varx : update_in_variables (name, value) varxs)
-
-
---symtable_remove :: MyState -> MyState -> MyState
---symtable_remove _ _ = fail "variable not found"
---symtable_remove (id1, v1) ((id2, v2):t) = 
-                               --if id1 == id2 then t
-                               --else (id2, v2) : symtable_remove (id1, v1) t    
-
--- updateState (add_current_scope_name "sla")
+isArithm _ = False 
 
 get_default_value :: Token -> Token
 get_default_value Nat = NatLiteral 0

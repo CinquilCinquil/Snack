@@ -71,21 +71,22 @@ init_or_decl id_token = (do -- Assignment
                 (do -- Declaration
                 a <- colonToken
                 b <- types
-                (exp_type, exp_value, c) <- atrib_opt -- TODO: also return type and put type check
+                (exp_type, exp_value, c) <- atrib_opt b
+                --
+                updateState (symtable_insert_variable (id_token, b, get_default_value b))
                 --
                 s <- getState; pos <- getPosition
                 type_check pos s check_eq id_token exp_type
                 let var_value = if c == [] then get_default_value b else exp_value
-                updateState (symtable_insert_variable (id_token, b, var_value))
+                updateState (symtable_update_variable (id_token, var_value))
                 --
                 return (a:b:c))
 
-atrib_opt :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
-atrib_opt = (do
+atrib_opt :: MyType -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+atrib_opt _type = (do
             a <- assignToken
             (exp_type, exp_value, b) <- exp_rule
-            s <- getState; pos <- getPosition
-            return (exp_type, exp_value, a:b)) <|> (return (String, defaultValue, []))
+            return (exp_type, exp_value, a:b)) <|> (return (_type, defaultValue, []))
 
 stmts :: ParsecT [InfoAndToken] MyState IO ([Token])
 stmts = do
