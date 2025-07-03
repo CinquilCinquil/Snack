@@ -45,12 +45,12 @@ append_to_scope :: ScopeName -> (Token, Token, Value) -> Variables -> Variables
 -- Base:
 append_to_scope (scope_namex:[]) var (Node name vars children) =
   if scope_namex == name then (Node name (append_to_variables var vars) children) -- insertion successful
-  else error_msg "Scope '%' not found!" [scope_namex]
-append_to_scope scope_name _ NoChildren = error_msg "Scope '%' not found!" [show scope_name]
+  else error_msg "In var declaration, scope '%' not found!" [scope_namex]
+append_to_scope scope_name _ NoChildren = error_msg "In var declaration, scope '%' not found!" [show scope_name]
 -- Induction:
 append_to_scope (scope_namex:scope_namexs) var (Node name vars children) =
   if scope_namex == name then (Node name vars (append_to_scope scope_namexs var children))
-  else error_msg "Scope '%' not found!" [show (scope_namex:scope_namexs)]
+  else error_msg "In var declaration, scope '%' not found!" [show (scope_namex:scope_namexs)]
 
 -- (Identifier token, Type token, value) -> ...
 append_to_variables :: (Token, Token, Value) -> [Var] -> [Var]
@@ -123,35 +123,53 @@ get_value_from_exp :: [Token] -> MyState -> Token
 get_value_from_exp expression [(vars, sk, ts, sp, pc, sn)] = IntLiteral 0
 
 -- pos -> State -> type checking function -> type or identifier token -> type or identifier token -> ...
-type_check :: SourcePos -> MyState -> (MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
+type_check :: SourcePos -> MyState -> (SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
 -- TODO: _type (Id var_name) case 
 -- TODO: (Id var_name) (Id var_name) case 
 type_check pos state check (Id var_name) _type = do
   case lookup_var var_name state of
     (_, _, ErrorToken) -> error_msg "Variable '%' not declared! Line: % Column: %" [var_name, showLine pos, showColumn pos]
-    (_, var_type, _) -> if check var_type _type
-        then return ()
-        else error_msg "Types '%' and '%' do not match! Line: % Column: %" [show var_type, show _type, showLine pos, showColumn pos]
-type_check pos state check type1 type2 = if check type1 type2 
-    then return ()
-    else error_msg "Types '%' and '%' do not match! Line: % Column: %" [show type1, show type2, showLine pos, showColumn pos]
+    (_, var_type, _) -> if check pos var_type _type then return () else error ""
+type_check pos state check type1 type2 = if check pos type1 type2 then return () else error ""
+    
 
-check_eq :: MyType -> MyType -> Bool
-check_eq t1 t2 = t1 == t2
+check_eq :: SourcePos -> MyType -> MyType -> Bool
+check_eq pos t1 t2 = if t1 == t2 then True
+else error_msg "Types '%' and '%' do not match! Line: % Column: %" [show t1, show t2, showLine pos, showColumn pos]
 
-check_arithm :: MyType -> MyType -> Bool
-check_arithm t1 t2 = (check_eq t1 t2) && (isArithm t1) && (isArithm t2)
+check_arithm :: SourcePos -> MyType -> MyType -> Bool
+check_arithm pos t1 t2 = if (check_eq pos t1 t2) && (isArithm t1) && (isArithm t2) then True
+else error_msg "Types '%' and/or '%' are not arithmetic! Line: % Column: %" [show t1, show t2, showLine pos, showColumn pos]
 
 isArithm :: MyType -> Bool
 isArithm Nat = True
 isArithm Int = True
 isArithm Float = True
-isArithm String = True
-isArithm TChar = True
 isArithm _ = False
 
 symtable_update_variable :: (Token, Value) -> MyState -> MyState
-symtable_update_variable _ s = s
+symtable_update_variable (Id var_name, value) [(vars, sk, ts, sp, pc, scope_name)] = do
+  [(update_in_scope scope_name (var_name, value) vars, sk, ts, sp, pc, scope_name)]
+
+-- Scope name -> (var name, value) -> Tree node -> ...
+update_in_scope :: ScopeName -> (Name, Value) -> Variables -> Variables
+-- Base:
+update_in_scope (scope_namex:[]) var (Node name vars children) =
+  if scope_namex == name then (Node name (update_in_variables var vars) children) -- update successful
+  else error_msg "In var update, scope '%' not found!" [scope_namex]
+update_in_scope scope_name _ NoChildren = error_msg "In var update, scope '%' not found!" [show scope_name]
+-- Induction:
+update_in_scope (scope_namex:scope_namexs) var (Node name vars children) =
+  if scope_namex == name then (Node name vars (update_in_scope scope_namexs var children))
+  else error_msg "In var update, scope '%' not found!" [show (scope_namex:scope_namexs)]
+
+-- (var name, value) -> ...
+update_in_variables :: (Name, Value) -> [Var] -> [Var]
+update_in_variables (name, _) [] = error_msg "Variable with name '%' not found" [name]
+update_in_variables (name, value) (varx:varxs) =
+  let (namex, typex, _) = varx in
+  if name == namex then ((namex, typex, value):varxs) else (varx : update_in_variables (name, value) varxs)
+
 
 --symtable_remove :: MyState -> MyState -> MyState
 --symtable_remove _ _ = fail "variable not found"
@@ -168,6 +186,26 @@ get_default_value String = StringLiteral ""
 get_default_value TChar = CharLiteral '\a'
 get_default_value Float = FloatLiteral 0.0
 get_default_value TBool = BoolLiteral False
+
+doOpOnTokens :: Token -> Token -> Token -> Token
+doOpOnTokens (NatLiteral x) (NatLiteral y) op = NatLiteral (doOpNum x y op)
+doOpOnTokens (IntLiteral x) (IntLiteral y) op = IntLiteral (doOpNum x y op)
+doOpOnTokens (FloatLiteral x) (FloatLiteral y) op = FloatLiteral (doOpFractional x y op)
+-- ...
+
+doOpNum :: Integral a => a -> a -> Token -> a
+doOpNum x y Sum = x + y
+doOpNum x y Minus = x - y
+doOpNum x y Mult = x * y
+doOpNum x y Pow = x ^ y
+doOpNum _ _ Div = error_msg "'/' operator not allowed for integral types" []
+
+doOpFractional :: Floating a => a -> a -> Token -> a
+doOpFractional x y Sum = x + y
+doOpFractional x y Minus = x - y
+doOpFractional x y Mult = x * y
+doOpFractional x y Div = x / y
+doOpFractional x y Pow = x ** y
 
 ----------------- Others -----------------
 

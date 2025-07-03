@@ -60,28 +60,32 @@ decl_or_atrib = do
 init_or_decl :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
 init_or_decl id_token = (do -- Assignment
                 a <- assignToken
-                (exp_type, b) <- exp_rule
+                (exp_type, exp_value, b) <- exp_rule
+                --
                 s <- getState; pos <- getPosition
                 type_check pos s check_eq id_token exp_type
-                updateState (symtable_update_variable (id_token, get_value_from_exp b s))
+                updateState (symtable_update_variable (id_token, exp_value))
+                --
                 return (a:b))
                 <|>
                 (do -- Declaration
                 a <- colonToken
                 b <- types
-                (_exp, c) <- atrib_opt -- TODO: also return type and put type check
-                s <- getState
-                --let var_value = if c == [] then get_default_value b else get_value_from_exp _exp s
-                let var_value = get_default_value b
+                (exp_type, exp_value, c) <- atrib_opt -- TODO: also return type and put type check
+                --
+                s <- getState; pos <- getPosition
+                type_check pos s check_eq id_token exp_type
+                let var_value = if c == [] then get_default_value b else exp_value
                 updateState (symtable_insert_variable (id_token, b, var_value))
+                --
                 return (a:b:c))
 
-atrib_opt :: ParsecT [InfoAndToken] MyState IO ([Token], [Token])
+atrib_opt :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 atrib_opt = (do
             a <- assignToken
-            (exp_type, b) <- exp_rule
-            -- TODO: update symbol table
-            return (b, a:b)) <|> (return ([], []))
+            (exp_type, exp_value, b) <- exp_rule
+            s <- getState; pos <- getPosition
+            return (exp_type, exp_value, a:b)) <|> (return (String, defaultValue, []))
 
 stmts :: ParsecT [InfoAndToken] MyState IO ([Token])
 stmts = do
@@ -106,7 +110,7 @@ types =
   <|> (do a <- typeToken; return a)
   <|> fail "Not a valid type"
 
-exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 exp_rule = (do a <- arithm_exp; return a) <|> (do a <- function_call; return a)
        <|> (do
         a <- openParenthesesToken
@@ -114,67 +118,79 @@ exp_rule = (do a <- arithm_exp; return a) <|> (do a <- function_call; return a)
         c <- closeParenthesesToken
         return b)
 
-term :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
-term = (do (_type, a) <- literal; return (_type, [a])) <|> (do a <- idToken; return (String, [a]))
+term :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+term = (do (_type, value, a) <- literal; return (_type, value, [a])) <|> (do a <- idToken; return (String, defaultValue, [a]))
 
-function_call :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+function_call :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 function_call = fail "samba"
 
-arithm_exp :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+arithm_exp :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 arithm_exp = (do
-              (a_type, a) <- term
-              b <- arithm_exp_remaining (a_type, a)
+              (a_type, a_value, a) <- term
+              b <- arithm_exp_remaining (a_type, a_value, a)
               return b)
             <|> (do a <- mult_exp; return a)
 
-arithm_exp_remaining :: (MyType, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, [Token])
-arithm_exp_remaining (a_type, a) = (do
+arithm_exp_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+arithm_exp_remaining (a_type, a_value, a) = (do
               b <- sum_or_minus
-              (c_type, c) <- arithm_exp
+              (c_type, c_value, c) <- arithm_exp
+              --
               s <- getState; pos <- getPosition
               type_check pos s check_arithm a_type c_type
-              return (c_type, a ++ [b] ++ c))
-            <|> (return (a_type, a))
+              let result_value = doOpOnTokens a_value c_value b
+              --
+              return (c_type, result_value,  a ++ [b] ++ c))
+            <|> (return (a_type, a_value, a))
 
-mult_exp :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+mult_exp :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 mult_exp = (do
-            (a_type, a) <- term
-            b <- mult_exp_remaining (a_type, a)
+            (a_type, a_value, a) <- term
+            b <- mult_exp_remaining (a_type, a_value, a)
             return b)
           <|> (do a <- pow_exp; return a)
 
-mult_exp_remaining :: (MyType, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, [Token])
-mult_exp_remaining (a_type, a) = (do
+mult_exp_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+mult_exp_remaining (a_type, a_value, a) = (do
               b <- mult_or_div
-              (c_type, c) <- mult_exp
+              (c_type, c_value, c) <- mult_exp
+              --
               s <- getState; pos <- getPosition
               type_check pos s check_arithm a_type c_type
-              return (c_type, a ++ [b] ++ c))
-            <|> (return (a_type, a))
+              let result_value = doOpOnTokens a_value c_value b
+              --
+              return (c_type, result_value, a ++ [b] ++ c))
+            <|> (return (a_type, a_value, a))
 
-pow_exp :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+pow_exp :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 pow_exp = (do
-           (a_type, a) <- term
-           b <- pow_exp_remaining (a_type, a)
+           (a_type, a_value, a) <- term
+           b <- pow_exp_remaining (a_type, a_value, a)
            return b)
         <|> (do a <- uminus_exp; return a)
 
-pow_exp_remaining :: (MyType, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, [Token])
-pow_exp_remaining (a_type, a) = (do
+pow_exp_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+pow_exp_remaining (a_type, a_value, a) = (do
               b <- powToken
-              (c_type, c) <- pow_exp
+              (c_type, c_value, c) <- pow_exp
               s <- getState; pos <- getPosition
+              --
               type_check pos s check_arithm a_type c_type
-              return (c_type, a ++ [b] ++ c))
-            <|> (return (a_type, a))
+              let result_value = doOpOnTokens a_value c_value b
+              --
+              return (c_type, result_value, a ++ [b] ++ c))
+            <|> (return (a_type, a_value, a))
 
-uminus_exp :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+uminus_exp :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 uminus_exp = (do
               a <- minusToken
-              (b_type, b) <- exp_rule
+              (b_type, b_value, b) <- exp_rule
+              --
               s <- getState; pos <- getPosition
               type_check pos s check_arithm b_type b_type
-              return (b_type, a:b))
+              let result_value = b_value -- TODO: Unary op
+              --
+              return (b_type, result_value, a:b))
             <|> (do a <- term; return a)
 
 sum_or_minus :: ParsecT [InfoAndToken] MyState IO (Token)
@@ -184,12 +200,12 @@ mult_or_div :: ParsecT [InfoAndToken] MyState IO (Token)
 mult_or_div = (do a <- divToken; return a) <|> (do a <- multToken; return a)
 
 structures :: ParsecT [InfoAndToken] MyState IO [Token]
-structures = (do a <- if_rule; return a) -- TODO: fix Parser.exe: Prelude.read: no parse when reading if
+structures = (do a <- if_rule; return a)
 
 if_rule :: ParsecT [InfoAndToken] MyState IO [Token]
 if_rule = do
         a <- ifToken
-        (b_type, b) <- exp_rule
+        (b_type, b_value, b) <- exp_rule
         s <- getState; pos <- getPosition
         type_check pos s check_eq b_type TBool
         --
@@ -227,13 +243,13 @@ block = do
 --literals :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 --literals = (do a <- literal; return a) <|> (do a <- literals; return a)
 
-literal :: ParsecT [InfoAndToken] MyState IO (MyType, Token)
-literal = (do a <- natLiteralToken; return (Nat, a)) -- TODO: qnd a pessoa escreve S1 dá a entender q ela escreveu '2', mas por enquanto ela escreveu '1'. Consertar isso
-  <|> (do a <- intLiteralToken; return (Int, a))
-  <|> (do a <- stringLiteralToken; return (String, a))
-  <|> (do a <- floatLiteralToken; return (Float, a))
-  <|> (do a <- charLiteralToken; return (TChar, a))
-  <|> (do a <- boolLiteralToken; return (TBool, a))
+literal :: ParsecT [InfoAndToken] MyState IO (MyType, Value, Token)
+literal = (do a <- natLiteralToken; return (Nat, a, a)) -- TODO: qnd a pessoa escreve S1 dá a entender q ela escreveu '2', mas por enquanto ela escreveu '1'. Consertar isso
+  <|> (do a <- intLiteralToken; return (Int, a, a))
+  <|> (do a <- stringLiteralToken; return (String, a, a))
+  <|> (do a <- floatLiteralToken; return (Float, a, a))
+  <|> (do a <- charLiteralToken; return (TChar, a, a))
+  <|> (do a <- boolLiteralToken; return (TBool, a, a))
   <|> fail "Not a valid literal"
 
 ---------------------------------------------------
@@ -241,6 +257,7 @@ literal = (do a <- natLiteralToken; return (Nat, a)) -- TODO: qnd a pessoa escre
 ---------------------------------------------------
 
 initialState = [(Node "root" [] NoChildren, [], [], [], 0, ["root"])]
+defaultValue = StringLiteral "Default Value"
 
 parser :: [InfoAndToken] -> IO (Either ParseError [Token])
 parser tokens = runParserT program initialState "Parsing error!" tokens
