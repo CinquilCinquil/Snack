@@ -1,6 +1,4 @@
 types:
 decls:
-    a : int;
-    b : int;
 main:
-    a := 1;
+    a : bool := false;

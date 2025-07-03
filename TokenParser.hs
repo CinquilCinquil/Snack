@@ -71,7 +71,7 @@ intToken = tokenParser Int
 stringToken = tokenParser String
 charToken = tokenParser TChar
 floatToken = tokenParser Float
-boolToken = tokenParser Bool
+boolToken = tokenParser TBool
 
 -- Literals
 

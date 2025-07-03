@@ -24,7 +24,7 @@ data ScopeTree =
   | NoChildren
   deriving (Eq,Show) 
 type Name = String
-type Var = (String, Value, MyType)
+type Var = (String, MyType, Value)
 type Value = Token
 type MyType = Token
 type Form = (Name, Args)
@@ -49,7 +49,7 @@ append_to_scope (scope_namex:[]) var (Node name vars children) =
 append_to_scope scope_name _ NoChildren = error_msg "Scope '%' not found!" [show scope_name]
 -- Induction:
 append_to_scope (scope_namex:scope_namexs) var (Node name vars children) =
-  if scope_namex == name then append_to_scope scope_namexs var children
+  if scope_namex == name then (Node name vars (append_to_scope scope_namexs var children))
   else error_msg "Scope '%' not found!" [show (scope_namex:scope_namexs)]
 
 -- (Identifier token, Type token, value) -> ...
@@ -58,12 +58,32 @@ append_to_variables var [] = [makeVar var]
 append_to_variables var (varx:varxs) =
   let (Id name, _, _) = var in
   let (namex, typex, _) = varx in
-  if name == namex then error ("Variable with name '" ++ name ++ "' already declared as " ++ (show typex) ++ " !")
+  if name == namex then error_msg "Variable with name '%' already declared as a '%'" [name, show typex]
   else (varx : append_to_variables var varxs)
 
 -- Turns tokens into a Var type
 makeVar :: (Token, Token, Value) -> Var
-makeVar (Id name, type_, value) = (name, value, type_)
+makeVar (Id name, type_, value) = (name, type_, value)
+
+add_current_scope_name :: Name -> MyState -> MyState
+add_current_scope_name name [(vars, sk, ts, sp, pc, scope_name)] =
+  case append_scope vars scope_name name of
+    NoChildren -> error_msg "Failed adding to scope" []
+    new_vars -> [(new_vars, sk, ts, sp, pc, scope_name ++ [name])]
+
+remove_current_scope_name :: MyState -> MyState
+remove_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = [(vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name)]
+
+append_scope :: Variables -> ScopeName -> Name -> Variables
+append_scope NoChildren _ _ = NoChildren
+append_scope (Node _ _ NoChildren) [] _ = NoChildren
+append_scope (Node name vars NoChildren) (scope_namex:[]) new_scope_name = 
+  if name == scope_namex then (Node name vars (Node new_scope_name [] NoChildren))
+  else NoChildren
+append_scope (Node name vars children) (scope_namex:scope_namexs) new_scope_name = 
+  if name == scope_namex then (Node name vars (append_scope children scope_namexs new_scope_name))
+  else NoChildren
+append_scope _ _ _ = NoChildren
 
 ----------------- Search -----------------
 
@@ -94,8 +114,8 @@ search_scope_tree (scope_namex:scope_namexs) (Node name vars children) =
 -- OBS: scope_name here is not a list like in MyState, its the name of a single strucure, like 'if' or a function name
 get_var_info_from_scope :: Name -> Name -> [Var] -> Var
 get_var_info_from_scope scope_name var_name [] = var_error
-get_var_info_from_scope scope_name var_name (varx:varxs) = let (namex, valuex, typex) = varx in
-  if var_name == namex then (namex, valuex, typex) else get_var_info_from_scope scope_name var_name varxs
+get_var_info_from_scope scope_name var_name (varx:varxs) = let (namex, typex, valuex) = varx in
+  if var_name == namex then (namex, typex, valuex) else get_var_info_from_scope scope_name var_name varxs
 
 ----------------- Semantic -----------------
 
@@ -109,7 +129,7 @@ type_check :: SourcePos -> MyState -> (MyType -> MyType -> Bool) -> Token -> Tok
 type_check pos state check (Id var_name) _type = do
   case lookup_var var_name state of
     (_, _, ErrorToken) -> error_msg "Variable '%' not declared! Line: % Column: %" [var_name, showLine pos, showColumn pos]
-    (_, _, var_type) -> if check var_type _type
+    (_, var_type, _) -> if check var_type _type
         then return ()
         else error_msg "Types '%' and '%' do not match! Line: % Column: %" [show var_type, show _type, showLine pos, showColumn pos]
 type_check pos state check type1 type2 = if check type1 type2 
@@ -147,7 +167,7 @@ get_default_value Int = IntLiteral 0
 get_default_value String = StringLiteral ""
 get_default_value TChar = CharLiteral '\a'
 get_default_value Float = FloatLiteral 0.0
-get_default_value Bool = BoolLiteral False
+get_default_value TBool = BoolLiteral False
 
 ----------------- Others -----------------
 
@@ -155,12 +175,6 @@ print_state :: ParsecT [InfoAndToken] MyState IO ()
 print_state = do
               s <- getState
               liftIO (print s)
-
-add_current_scope_name :: Name -> MyState -> MyState
-add_current_scope_name name [(vars, sk, ts, sp, pc, scope_name)] = [(vars, sk, ts, sp, pc, scope_name ++ [name])]
-
-remove_current_scope_name :: MyState -> MyState
-remove_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = [(vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name)]
 
 var_error = ("", ErrorToken, ErrorToken)
 
