@@ -55,7 +55,7 @@ tokens :-
   int                                   { \p _ -> (getLC p, Int) }
   string                                { \p _ -> (getLC p, String) }
   float                                 { \p _ -> (getLC p, Float) }
-  bool                                  { \p _ -> (getLC p, Bool) }
+  bool                                  { \p _ -> (getLC p, TBool) }
   -- Literals
   S$D+	                                { \p s -> (getLC p, NatLiteral (read s)) }
   $D+	                                  { \p s -> (getLC p, IntLiteral (read s)) }
@@ -121,7 +121,7 @@ data Token =
   String |
   TChar |
   Float |
-  Bool |
+  TBool |
   -- Literals
   NatLiteral Int |
   IntLiteral Int |
