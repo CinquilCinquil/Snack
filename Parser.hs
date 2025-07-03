@@ -189,7 +189,7 @@ uminus_exp = (do
               --
               s <- getState; pos <- getPosition
               type_check pos s check_arithm b_type b_type
-              let result_value = b_value -- TODO: Unary op
+              let result_value = doOpOnToken b_value a
               --
               return (b_type, result_value, a:b))
             <|> (do a <- term; return a)

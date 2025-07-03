@@ -194,24 +194,35 @@ get_default_value Float = FloatLiteral 0.0
 get_default_value TBool = BoolLiteral False
 
 doOpOnTokens :: Token -> Token -> Token -> Token
-doOpOnTokens (NatLiteral x) (NatLiteral y) op = NatLiteral (doOpNum x y op)
-doOpOnTokens (IntLiteral x) (IntLiteral y) op = IntLiteral (doOpNum x y op)
-doOpOnTokens (FloatLiteral x) (FloatLiteral y) op = FloatLiteral (doOpFractional x y op)
+doOpOnTokens (NatLiteral x) (NatLiteral y) op = NatLiteral (doOpIntegral x y op)
+doOpOnTokens (IntLiteral x) (IntLiteral y) op = IntLiteral (doOpIntegral x y op)
+doOpOnTokens (FloatLiteral x) (FloatLiteral y) op = FloatLiteral (doOpFloating x y op)
 -- ...
 
-doOpNum :: Integral a => a -> a -> Token -> a
-doOpNum x y Sum = x + y
-doOpNum x y Minus = x - y
-doOpNum x y Mult = x * y
-doOpNum x y Pow = x ^ y
-doOpNum _ _ Div = error_msg "'/' operator not allowed for integral types" []
+doOpOnToken :: Token -> Token -> Token
+doOpOnToken (NatLiteral x) op = NatLiteral (doUnaryOpIntegral x op)
+doOpOnToken (IntLiteral x) op = IntLiteral (doUnaryOpIntegral x op)
+doOpOnToken (FloatLiteral x) op = FloatLiteral (doUnaryOpFloating x op)
 
-doOpFractional :: Floating a => a -> a -> Token -> a
-doOpFractional x y Sum = x + y
-doOpFractional x y Minus = x - y
-doOpFractional x y Mult = x * y
-doOpFractional x y Div = x / y
-doOpFractional x y Pow = x ** y
+doOpIntegral :: Integral a => a -> a -> Token -> a
+doOpIntegral x y Sum = x + y
+doOpIntegral x y Minus = x - y
+doOpIntegral x y Mult = x * y
+doOpIntegral x y Pow = x ^ y
+doOpIntegral _ _ Div = error_msg "'/' operator not allowed for integral types" []
+
+doOpFloating :: Floating a => a -> a -> Token -> a
+doOpFloating x y Sum = x + y
+doOpFloating x y Minus = x - y
+doOpFloating x y Mult = x * y
+doOpFloating x y Div = x / y
+doOpFloating x y Pow = x ** y
+
+doUnaryOpIntegral :: Integral a => a -> Token -> a
+doUnaryOpIntegral x Minus = -x
+
+doUnaryOpFloating :: Floating a => a -> Token -> a
+doUnaryOpFloating x Minus = -x
 
 ----------------- Others -----------------
 
