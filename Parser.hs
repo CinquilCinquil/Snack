@@ -245,7 +245,7 @@ block = do
 --literals = (do a <- literal; return a) <|> (do a <- literals; return a)
 
 literal :: ParsecT [InfoAndToken] MyState IO (MyType, Value, Token)
-literal = (do a <- natLiteralToken; return (Nat, a, a)) -- TODO: qnd a pessoa escreve S1 dá a entender q ela escreveu '2', mas por enquanto ela escreveu '1'. Consertar isso
+literal = (do NatLiteral n <- natLiteralToken; return (Nat, NatLiteral (n + 1), NatLiteral n))
   <|> (do a <- intLiteralToken; return (Int, a, a))
   <|> (do a <- stringLiteralToken; return (String, a, a))
   <|> (do a <- floatLiteralToken; return (Float, a, a))
