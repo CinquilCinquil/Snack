@@ -60,7 +60,7 @@ tokens :-
   S$D+	                                { \p s -> (getLC p, NatLiteral $ read (tail s)) }
   $D+	                                  { \p s -> (getLC p, IntLiteral (read s)) }
   ($D+"."$D+)(e[\+\-]$D$D)?	            { \p s -> (getLC p, FloatLiteral (read s)) }
-  \".*\"                                { \p s -> (getLC p, StringLiteral (read s)) }
+  \"([^\"\\]|\\.)*\"                    { \p s -> (getLC p, StringLiteral $ read s) }
   \'.+\'                                { \p s -> (getLC p, CharLiteral (read s)) }
   "true"|"false"                        { \p s -> (getLC p, BoolLiteral (s == "true")) }
   --"True"|"False"                            { \p s -> (getLC p, BoolLiteral $ (\b -> if b == "True" then True else False) (read s)) }
@@ -147,4 +147,5 @@ getTokens fn = do
     fh <- openFile fn ReadMode;
     s <- hGetContents fh;
     return (alexScanTokens s)
+
 }
