@@ -62,7 +62,8 @@ tokens :-
   ($D+"."$D+)(e[\+\-]$D$D)?	            { \p s -> (getLC p, FloatLiteral (read s)) }
   \".*\"                                { \p s -> (getLC p, StringLiteral (read s)) }
   \'.+\'                                { \p s -> (getLC p, CharLiteral (read s)) }
-  true|false                            { \p s -> (getLC p, BoolLiteral $ (\b -> if b == "true" then True else False) (read s)) }
+  "true"|"false"                        { \p s -> (getLC p, BoolLiteral (s == "true")) }
+  --"True"|"False"                            { \p s -> (getLC p, BoolLiteral $ (\b -> if b == "True" then True else False) (read s)) }
   
   -- missing other primary types such as unit, empty, matrix...
 
@@ -72,6 +73,7 @@ tokens :-
   types:                                { \p _ -> (getLC p, Types) }
   decls:                                { \p _ -> (getLC p, Decls) }
   main:                                 { \p _ -> (getLC p, Main) }
+  return                                { \p _ -> (getLC p, Return) }
 {
 
 -- The token type:
@@ -135,6 +137,7 @@ data Token =
   Types |
   Decls |
   Main |
+  Return |
   ErrorToken
   deriving (Eq,Show)
 
