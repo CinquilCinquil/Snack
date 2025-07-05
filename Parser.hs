@@ -201,7 +201,14 @@ mult_or_div :: ParsecT [InfoAndToken] MyState IO (Token)
 mult_or_div = (do a <- divToken; return a) <|> (do a <- multToken; return a)
 
 structures :: ParsecT [InfoAndToken] MyState IO [Token]
-structures = (do a <- if_rule; return a)
+structures = (do a <- if_rule; return a) <|> (do a <- for_rule; return a)
+
+block :: ParsecT [InfoAndToken] MyState IO [Token]
+block = do
+      a <- openBracketsToken
+      b <- stmts_op
+      c <- closeBracketsToken
+      return ((a:b) ++ [c])
 
 if_rule :: ParsecT [InfoAndToken] MyState IO [Token]
 if_rule = do
@@ -232,12 +239,61 @@ else_op = (do
           --
           return (a:b)) <|> (return [])
 
-block :: ParsecT [InfoAndToken] MyState IO [Token]
-block = do
-      a <- openBracketsToken
-      b <- stmts_op
-      c <- closeBracketsToken
-      return ((a:b) ++ [c])
+for_rule :: ParsecT [InfoAndToken] MyState IO [Token]
+for_rule = do
+        a <- forToken
+        --
+        liftIO (putStrLn "hey hey:")
+        print_state
+        updateState (add_current_scope_name "for")
+        (b_type, b) <- for_declaration
+        c <- inToken
+        (d_type, d) <- range_rule
+        --
+        s <- getState; pos <- getPosition
+        type_check pos s check_eq b_type d_type
+        --
+        e <- block
+        --
+        updateState (remove_current_scope_name)
+        return ((a:b) ++ b ++ [c] ++ d ++ e)
+
+range_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+range_rule = (do -- Range with brackets
+          a <- openSquareBracketsToken
+          (b_type, b_value, b) <- exp_rule
+          c <- twoDotsToken
+          (d_type, d_value, d) <- exp_rule
+          e <- closeSquareBracketsToken
+          --
+          s <- getState; pos <- getPosition
+          type_check pos s check_eq b_type d_type
+          --
+          return (d_type, [a] ++ b ++ [c] ++ d ++ [e]))
+          <|> -- Range with parantheses
+          (do
+          a <- openParenthesesToken
+          (b_type, b_value, b) <- exp_rule
+          c <- twoDotsToken
+          (d_type, d_value, d) <- exp_rule
+          e <- closeParenthesesToken
+          --
+          s <- getState; pos <- getPosition
+          type_check pos s check_eq b_type d_type
+          --
+          return (d_type, [a] ++ b ++ [c] ++ d ++ [e]))
+
+for_declaration :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+for_declaration = do
+              b <- idToken
+              c <- colonToken
+              d <- types
+              s <- getState
+              updateState (symtable_insert_variable (b, d, get_default_value d))
+              liftIO (putStrLn "for_declaration:")
+              print_state
+              return (d, (b:c:[d]))
+
 
 ----------------- Others -----------------
 

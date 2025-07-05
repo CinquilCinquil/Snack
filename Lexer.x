@@ -26,6 +26,7 @@ tokens :-
   "{"                                   { \p _ -> (getLC p, OpenBrackets)}
   "}"                                   { \p _ -> (getLC p, CloseBrackets)}
   "..."                                 { \p _ -> (getLC p, Ellipsis)}
+  ".."                                  { \p _ -> (getLC p, TwoDots)}
   -- Structures
   if                                    { \p _ -> (getLC p, If) }
   then                                  { \p _ -> (getLC p, Then) }
@@ -93,6 +94,7 @@ data Token =
   OpenBrackets |
   CloseBrackets |
   Ellipsis |                        -- ...
+  TwoDots  |                        -- ..
   -- Structures
   If  |
   Then |
