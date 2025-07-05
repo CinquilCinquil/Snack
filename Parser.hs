@@ -120,7 +120,12 @@ exp_rule = (do a <- arithm_exp; return a) <|> (do a <- function_call; return a)
         return b)
 
 term :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
-term = (do (_type, value, a) <- literal; return (_type, value, [a])) <|> (do a <- idToken; return (String, defaultValue, [a]))
+term = (do (_type, value, a) <- literal; return (_type, value, [a]))
+      <|> (do
+        (Id a_name) <- idToken
+        s <- getState
+        let (_, a_type, a_value) = lookup_var a_name s
+        return (a_type, a_value, [(Id a_name)]))
 
 function_call :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 function_call = fail "samba"
@@ -201,7 +206,11 @@ mult_or_div :: ParsecT [InfoAndToken] MyState IO (Token)
 mult_or_div = (do a <- divToken; return a) <|> (do a <- multToken; return a)
 
 structures :: ParsecT [InfoAndToken] MyState IO [Token]
-structures = (do a <- if_rule; return a) <|> (do a <- for_rule; return a)
+structures = (do a <- if_rule; return a)
+          <|> (do a <- for_rule; return a) 
+          <|> (do a <- while_rule; return a)
+          <|> (do a <- repeat_rule; return a)
+          <|> (do a <- match_rule; return a)
 
 block :: ParsecT [InfoAndToken] MyState IO [Token]
 block = do
@@ -292,6 +301,37 @@ for_declaration = do
               print_state
               return (d, (b:c:[d]))
 
+while_rule :: ParsecT [InfoAndToken] MyState IO [Token]
+while_rule = do
+        a <- whileToken
+        --
+        updateState (add_current_scope_name "while")
+        (b_type, b_value, b) <- exp_rule
+        --
+        s <- getState; pos <- getPosition
+        type_check pos s check_eq b_type TBool
+        --
+        c <- block
+        --
+        updateState (remove_current_scope_name)
+        return ((a:b) ++ c)
+
+repeat_rule :: ParsecT [InfoAndToken] MyState IO [Token]
+repeat_rule = do
+        a <- repeatToken
+        --
+        updateState (add_current_scope_name "repeat")
+        (b_type, b_value, b) <- exp_rule
+        --
+        s <- getState; pos <- getPosition
+        if isIntegral b_type then do
+          --
+          c <- block
+          --
+          updateState (remove_current_scope_name)
+          return ((a:b) ++ c)
+        else
+          error_msg "Expression in Repeat must be integral! Line: % Column: %" [showLine pos, showColumn pos]
 
 ----------------- Others -----------------
 

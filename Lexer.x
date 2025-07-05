@@ -37,6 +37,7 @@ tokens :-
   while                                 { \p _ -> (getLC p, While) }
   switch                                { \p _ -> (getLC p, Switch) }
   case                                  { \p _ -> (getLC p, Case) }
+  repeat                                { \p _ -> (getLC p, Repeat) }
   -- Operations / Relations
   ":="                                  { \p _ -> (getLC p, Assign) }
   "="                                   { \p _ -> (getLC p, Equals) }
@@ -105,6 +106,7 @@ data Token =
   While |
   Switch |
   Case |
+  Repeat |
   -- Operations / Relations
   Assign |
   Equals |

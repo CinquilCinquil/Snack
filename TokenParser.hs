@@ -42,6 +42,7 @@ inToken = tokenParser In
 whileToken = tokenParser While
 switchToken = tokenParser Switch
 caseToken = tokenParser Case
+repeatToken = tokenParser Repeat
 
 -- Operations / Relations
 

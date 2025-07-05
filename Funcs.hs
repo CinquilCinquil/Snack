@@ -183,11 +183,22 @@ check_arithm :: SourcePos -> MyType -> MyType -> Bool
 check_arithm pos t1 t2 = if (check_eq pos t1 t2) && (isArithm t1) && (isArithm t2) then True
 else error_msg "Types '%' and/or '%' are not arithmetic! Line: % Column: %" [show t1, show t2, showLine pos, showColumn pos]
 
+check_integral :: SourcePos -> MyType -> MyType -> Bool
+check_integral pos t1 t2 = if (check_eq pos t1 t2) && (isArithm t1) && (isIntegral t2) then True
+else error_msg "Types '%' and/or '%' are not integral! Line: % Column: %" [show t1, show t2, showLine pos, showColumn pos]
+
+-- TODO: support type equivalence!?
 isArithm :: MyType -> Bool
 isArithm Nat = True
 isArithm Int = True
 isArithm Float = True
 isArithm _ = False 
+
+-- TODO: support type equivalence!?
+isIntegral :: MyType -> Bool
+isIntegral Nat = True
+isIntegral Int = True
+isIntegral _ = False
 
 get_default_value :: Token -> Token
 get_default_value Nat = NatLiteral 0
