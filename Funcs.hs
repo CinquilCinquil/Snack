@@ -72,7 +72,8 @@ add_current_scope_name name [(vars, sk, ts, sp, pc, scope_name)] =
     new_vars -> [(new_vars, sk, ts, sp, pc, scope_name ++ [name])]
 
 remove_current_scope_name :: MyState -> MyState
-remove_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = [(vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name)]
+remove_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = 
+  [(symtable_remove_scope scope_name vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name)]
 
 append_scope :: Variables -> ScopeName -> Name -> Variables
 append_scope NoChildren _ _ = NoChildren
@@ -107,8 +108,8 @@ search_scope_tree :: ScopeName -> Variables -> ScopeTree
 search_scope_tree [] _ = NoChildren -- not found
 search_scope_tree _ NoChildren = NoChildren -- not found
 search_scope_tree (scope_namex:scope_namexs) (Node name vars children) = 
-  if scope_namex == name then -- search successful
-    if scope_namexs == [] then (Node name vars children) else search_scope_tree scope_namexs children
+  if scope_namex == name then -- up until now search is successful
+    if scope_namexs == [] then (Node name vars children) else search_scope_tree scope_namexs children -- search is successful
     else NoChildren -- not found
 
 -- OBS: scope_name here is not a list like in MyState, its the name of a single strucure, like 'if' or a function name
@@ -145,16 +146,19 @@ update_scope_tree :: ScopeName -> Variables -> (Name, Value) -> ScopeTree
 update_scope_tree [] _ _ = NoChildren -- not found
 update_scope_tree _ NoChildren _ = NoChildren -- not found
 update_scope_tree (scope_namex:scope_namexs) (Node name vars children) var = 
-  if scope_namex == name then -- search successful
-    if scope_namexs == [] then (Node name (update_in_variables var vars) children) else (Node name vars (update_scope_tree scope_namexs children var))
+  if scope_namex == name then -- up until now search is successful
+    if scope_namexs == [] then (Node name (update_in_variables var vars) children) else (Node name vars (update_scope_tree scope_namexs children var))  -- search is successful
     else NoChildren -- not found
 
--- TODO:
---symtable_remove :: MyState -> MyState -> MyState
---symtable_remove _ _ = fail "variable not found"
---symtable_remove (id1, v1) ((id2, v2):t) = 
-                               --if id1 == id2 then t
-                               --else (id2, v2) : symtable_remove (id1, v1) t   
+symtable_remove_scope :: ScopeName -> Variables -> Variables
+symtable_remove_scope _ NoChildren = error_msg "dame" []
+symtable_remove_scope [] _ = error_msg "dame" []
+symtable_remove_scope (scope_namex:[]) (Node name vars children) = 
+  if scope_namex == name then NoChildren 
+  else error_msg "dame" []
+symtable_remove_scope (scope_namex:scope_namexs) (Node name vars children) = 
+  if scope_namex == name then (Node name vars (symtable_remove_scope scope_namexs children))
+  else error_msg "dame" []
 
 ----------------- Semantic -----------------
 

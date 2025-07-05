@@ -243,8 +243,6 @@ for_rule :: ParsecT [InfoAndToken] MyState IO [Token]
 for_rule = do
         a <- forToken
         --
-        liftIO (putStrLn "hey hey:")
-        print_state
         updateState (add_current_scope_name "for")
         (b_type, b) <- for_declaration
         c <- inToken
