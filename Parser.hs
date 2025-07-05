@@ -242,7 +242,7 @@ else_op = (do
           --
           updateState (add_current_scope_name "else")
           --
-          b <- block
+          b <- (do a <- if_rule; return a) <|> (do a <- block; return a)
           --
           updateState (remove_current_scope_name)
           --
