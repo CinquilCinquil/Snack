@@ -112,12 +112,13 @@ types =
   <|> fail "Not a valid type"
 
 exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
-exp_rule = (do a <- arithm_exp; return a) <|> (do a <- function_call; return a)
+exp_rule = (do a <- boolean_arithm_exp; return a)
+       <|> (do a <- function_call; return a)
        <|> (do
         a <- openParenthesesToken
-        b <- exp_rule
+        (b_type, b_value, b) <- exp_rule
         c <- closeParenthesesToken
-        return b)
+        return (b_type, b_value, [a] ++ b ++ [c]))
 
 term :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 term = (do (_type, value, a) <- literal; return (_type, value, [a]))
@@ -129,6 +130,25 @@ term = (do (_type, value, a) <- literal; return (_type, value, [a]))
 
 function_call :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 function_call = fail "samba"
+
+boolean_arithm_exp :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+boolean_arithm_exp = (do
+                      (a_type, a_value, a) <- term
+                      b <- boolean_arithm_exp_remaining (a_type, a_value, a)
+                      return b)
+                      <|> (do a <- arithm_exp; return a)
+
+boolean_arithm_exp_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+boolean_arithm_exp_remaining (a_type, a_value, a) = (do
+                  b <- rel_op
+                  (c_type, c_value, c) <- exp_rule
+                  --
+                  s <- getState; pos <- getPosition
+                  type_check pos s check_bool a_type c_type
+                  let result_value = doOpOnTokens a_value c_value b
+                  --
+                  return (TBool, result_value, a ++ [b] ++ c))
+                  <|> (return (a_type, a_value, a))
 
 arithm_exp :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 arithm_exp = (do
@@ -179,14 +199,15 @@ pow_exp_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState 
 pow_exp_remaining (a_type, a_value, a) = (do
               b <- powToken
               (c_type, c_value, c) <- pow_exp
-              s <- getState; pos <- getPosition
               --
+              s <- getState; pos <- getPosition
               type_check pos s check_arithm a_type c_type
               let result_value = doOpOnTokens a_value c_value b
               --
               return (c_type, result_value, a ++ [b] ++ c))
             <|> (return (a_type, a_value, a))
 
+-- and 'not'
 uminus_exp :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 uminus_exp = (do
               a <- minusToken
@@ -197,13 +218,33 @@ uminus_exp = (do
               let result_value = doOpOnToken b_value a
               --
               return (b_type, result_value, a:b))
-            <|> (do a <- term; return a)
+              <|>
+              (do 
+              a <- notToken
+              (b_type, b_value, b) <- exp_rule
+              --
+              s <- getState; pos <- getPosition
+              type_check pos s check_bool b_type TBool
+              let result_value = doOpOnToken b_value a
+              --
+              return (TBool, result_value, a:b))
+              <|> (do a <- term; return a)
 
 sum_or_minus :: ParsecT [InfoAndToken] MyState IO (Token)
 sum_or_minus = (do a <- sumToken; return a) <|> (do a <- minusToken; return a)
 
 mult_or_div :: ParsecT [InfoAndToken] MyState IO (Token)
 mult_or_div = (do a <- divToken; return a) <|> (do a <- multToken; return a)
+
+rel_op :: ParsecT [InfoAndToken] MyState IO (Token)
+rel_op = (do a <- leqToken; return a)
+    <|>  (do a <- geqToken; return a)
+    <|>  (do a <- compToken; return a)
+    <|>  (do a <- smallerToken; return a)
+    <|>  (do a <- greaterToken; return a)
+    <|>  (do a <- andToken; return a)
+    <|>  (do a <- orToken; return a)
+    <|>  (do a <- differentToken; return a)
 
 structures :: ParsecT [InfoAndToken] MyState IO [Token]
 structures = (do a <- if_rule; return a)

@@ -18,7 +18,6 @@ tokens :-
   :                                     { \p _ -> (getLC p, Colon)}
   ";"                                   { \p _ -> (getLC p, SemiColon)}
   "."                                   { \p _ -> (getLC p, Period)}
-  "|"                                   { \p _ -> (getLC p, Pipe)}
   "("                                   { \p _ -> (getLC p, OpenParentheses)}
   ")"                                   { \p _ -> (getLC p, CloseParentheses)}
   "["                                   { \p _ -> (getLC p, OpenSquareBrackets)}
@@ -43,9 +42,16 @@ tokens :-
   form                                  { \p _ -> (getLC p, Form) }
   -- Operations / Relations
   ":="                                  { \p _ -> (getLC p, Assign) }
+  "=="                                  { \p _ -> (getLC p, Comp) }
   "="                                   { \p _ -> (getLC p, Equals) }
+  "<="                                  { \p _ -> (getLC p, Leq) }
+  ">="                                  { \p _ -> (getLC p, Geq) }
   ">"                                   { \p _ -> (getLC p, Greater) }
   "<"                                   { \p _ -> (getLC p, Smaller) }
+  "not"                                 { \p _ -> (getLC p, Not) }
+  "and"                                 { \p _ -> (getLC p, And)}
+  "or"                                  { \p _ -> (getLC p, Or)}
+  "=/="                                 { \p _ -> (getLC p, Different)}
   "+"                                   { \p _ -> (getLC p, Sum) }
   "-"                                   { \p _ -> (getLC p, Minus) }
   "/"                                   { \p _ -> (getLC p, Div) }
@@ -115,9 +121,16 @@ data Token =
   Form |
   -- Operations / Relations
   Assign |
+  Comp |
   Equals |
   Greater |
   Smaller |
+  Leq |
+  Geq |
+  Not |
+  And |
+  Or |
+  Different |
   Sum |
   Minus |
   Div |

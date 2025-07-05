@@ -184,8 +184,12 @@ check_arithm pos t1 t2 = if (check_eq pos t1 t2) && (isArithm t1) && (isArithm t
 else error_msg "Types '%' and/or '%' are not arithmetic! Line: % Column: %" [show t1, show t2, showLine pos, showColumn pos]
 
 check_integral :: SourcePos -> MyType -> MyType -> Bool
-check_integral pos t1 t2 = if (check_eq pos t1 t2) && (isArithm t1) && (isIntegral t2) then True
+check_integral pos t1 t2 = if (check_eq pos t1 t2) && (isIntegral t2) then True
 else error_msg "Types '%' and/or '%' are not integral! Line: % Column: %" [show t1, show t2, showLine pos, showColumn pos]
+
+check_bool :: SourcePos -> MyType -> MyType -> Bool
+check_bool pos t1 t2 = if (check_eq pos t1 t2) && (t2 == TBool) then True
+else error_msg "Types '%' and/or '%' are not boolean! Line: % Column: %" [show t1, show t2, showLine pos, showColumn pos]
 
 -- TODO: support type equivalence!?
 isArithm :: MyType -> Bool
@@ -212,12 +216,14 @@ doOpOnTokens :: Token -> Token -> Token -> Token
 doOpOnTokens (NatLiteral x) (NatLiteral y) op = NatLiteral (doOpIntegral x y op)
 doOpOnTokens (IntLiteral x) (IntLiteral y) op = IntLiteral (doOpIntegral x y op)
 doOpOnTokens (FloatLiteral x) (FloatLiteral y) op = FloatLiteral (doOpFloating x y op)
+doOpOnTokens (BoolLiteral x) (BoolLiteral y) op = BoolLiteral (doOpBoolean x y op)
 -- ...
 
 doOpOnToken :: Token -> Token -> Token
 doOpOnToken (NatLiteral x) op = NatLiteral (doUnaryOpIntegral x op)
 doOpOnToken (IntLiteral x) op = IntLiteral (doUnaryOpIntegral x op)
 doOpOnToken (FloatLiteral x) op = FloatLiteral (doUnaryOpFloating x op)
+doOpOnToken (BoolLiteral x) op = BoolLiteral (doUnaryOpBoolean x op)
 
 doOpIntegral :: Integral a => a -> a -> Token -> a
 doOpIntegral x y Sum = x + y
@@ -233,11 +239,24 @@ doOpFloating x y Mult = x * y
 doOpFloating x y Div = x / y
 doOpFloating x y Pow = x ** y
 
+doOpBoolean :: Bool -> Bool -> Token -> Bool
+doOpBoolean x y Comp = x == y
+doOpBoolean x y Leq = x <= y
+doOpBoolean x y Geq = x >= y
+doOpBoolean x y Smaller = x < y
+doOpBoolean x y Greater = x > y
+doOpBoolean x y And = x && y
+doOpBoolean x y Or = x || y
+doOpBoolean x y Different = x /= y
+
 doUnaryOpIntegral :: Integral a => a -> Token -> a
 doUnaryOpIntegral x Minus = -x
 
 doUnaryOpFloating :: Floating a => a -> Token -> a
 doUnaryOpFloating x Minus = -x
+
+doUnaryOpBoolean :: Bool -> Token -> Bool
+doUnaryOpBoolean x Not = not x
 
 ----------------- Others -----------------
 

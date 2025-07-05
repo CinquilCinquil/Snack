@@ -50,9 +50,16 @@ formToken = tokenParser Form
 -- Operations / Relations
 
 assignToken = tokenParser Assign
+compToken = tokenParser Comp
 equalsToken = tokenParser Equals
+leqToken = tokenParser Leq
+geqToken = tokenParser Geq
 greaterToken = tokenParser Greater
 smallerToken = tokenParser Smaller
+notToken = tokenParser Not
+andToken = tokenParser And
+orToken = tokenParser Or
+differentToken = tokenParser Different
 sumToken = tokenParser Sum
 minusToken = tokenParser Minus
 divToken = tokenParser Div
