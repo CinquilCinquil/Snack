@@ -213,10 +213,23 @@ get_default_value Float = FloatLiteral 0.0
 get_default_value TBool = BoolLiteral False
 
 doOpOnTokens :: Token -> Token -> Token -> Token
-doOpOnTokens (NatLiteral x) (NatLiteral y) op = NatLiteral (doOpIntegral x y op)
-doOpOnTokens (IntLiteral x) (IntLiteral y) op = IntLiteral (doOpIntegral x y op)
-doOpOnTokens (FloatLiteral x) (FloatLiteral y) op = FloatLiteral (doOpFloating x y op)
-doOpOnTokens (BoolLiteral x) (BoolLiteral y) op = BoolLiteral (doOpBoolean x y op)
+doOpOnTokens (NatLiteral x) (NatLiteral y) op
+  | isOrd op = BoolLiteral (doOpOrd x y op)
+  | otherwise = NatLiteral (doOpIntegral x y op)
+--
+doOpOnTokens (IntLiteral x) (IntLiteral y) op
+  | isOrd op = BoolLiteral (doOpOrd x y op)
+  | otherwise = IntLiteral (doOpIntegral x y op)
+--
+doOpOnTokens (FloatLiteral x) (FloatLiteral y) op 
+  | isOrd op = BoolLiteral (doOpOrd x y op)
+  | otherwise = FloatLiteral (doOpFloating x y op)
+--
+doOpOnTokens (BoolLiteral x) (BoolLiteral y) op 
+  | isEq op = BoolLiteral (doOpEq x y op)
+  | otherwise = BoolLiteral (doOpBoolean x y op)
+--
+doOpOnTokens (StringLiteral x) (StringLiteral y) op = BoolLiteral (doOpEq x y op)
 -- ...
 
 doOpOnToken :: Token -> Token -> Token
@@ -224,6 +237,29 @@ doOpOnToken (NatLiteral x) op = NatLiteral (doUnaryOpIntegral x op)
 doOpOnToken (IntLiteral x) op = IntLiteral (doUnaryOpIntegral x op)
 doOpOnToken (FloatLiteral x) op = FloatLiteral (doUnaryOpFloating x op)
 doOpOnToken (BoolLiteral x) op = BoolLiteral (doUnaryOpBoolean x op)
+
+isEq :: Token -> Bool
+isEq Comp = True
+isEq Different = True
+isEq _ = False
+
+isOrd :: Token -> Bool
+isOrd Leq = True
+isOrd Geq = True
+isOrd Smaller = True
+isOrd Greater = True
+isOrd op = isEq op
+
+doOpEq :: Eq a => a -> a -> Token -> Bool
+doOpEq x y Comp = x == y
+doOpEq x y Different = x /= y
+
+doOpOrd :: Ord a => a -> a -> Token -> Bool
+doOpOrd x y Leq = x <= y
+doOpOrd x y Geq = x >= y
+doOpOrd x y Smaller = x < y
+doOpOrd x y Greater = x > y
+doOpOrd x y op = doOpEq x y op
 
 doOpIntegral :: Integral a => a -> a -> Token -> a
 doOpIntegral x y Sum = x + y
@@ -240,14 +276,8 @@ doOpFloating x y Div = x / y
 doOpFloating x y Pow = x ** y
 
 doOpBoolean :: Bool -> Bool -> Token -> Bool
-doOpBoolean x y Comp = x == y
-doOpBoolean x y Leq = x <= y
-doOpBoolean x y Geq = x >= y
-doOpBoolean x y Smaller = x < y
-doOpBoolean x y Greater = x > y
 doOpBoolean x y And = x && y
 doOpBoolean x y Or = x || y
-doOpBoolean x y Different = x /= y
 
 doUnaryOpIntegral :: Integral a => a -> Token -> a
 doUnaryOpIntegral x Minus = -x
