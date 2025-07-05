@@ -43,6 +43,9 @@ whileToken = tokenParser While
 switchToken = tokenParser Switch
 caseToken = tokenParser Case
 repeatToken = tokenParser Repeat
+matchToken = tokenParser Match
+withToken = tokenParser With
+formToken = tokenParser Form
 
 -- Operations / Relations
 

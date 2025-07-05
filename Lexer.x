@@ -38,6 +38,9 @@ tokens :-
   switch                                { \p _ -> (getLC p, Switch) }
   case                                  { \p _ -> (getLC p, Case) }
   repeat                                { \p _ -> (getLC p, Repeat) }
+  match                                 { \p _ -> (getLC p, Match) }
+  with                                  { \p _ -> (getLC p, With) }
+  form                                  { \p _ -> (getLC p, Form) }
   -- Operations / Relations
   ":="                                  { \p _ -> (getLC p, Assign) }
   "="                                   { \p _ -> (getLC p, Equals) }
@@ -107,6 +110,9 @@ data Token =
   Switch |
   Case |
   Repeat |
+  Match |
+  With |
+  Form |
   -- Operations / Relations
   Assign |
   Equals |

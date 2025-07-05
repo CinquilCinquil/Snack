@@ -333,6 +333,60 @@ repeat_rule = do
         else
           error_msg "Expression in Repeat must be integral! Line: % Column: %" [showLine pos, showColumn pos]
 
+match_rule :: ParsecT [InfoAndToken] MyState IO [Token]
+match_rule = do
+        a <- matchToken
+        b <- idToken
+        c <- withToken
+        --
+        updateState (add_current_scope_name "match")
+        --
+        d <- match_block
+        --
+        updateState (remove_current_scope_name)
+        return (a:b:c:d)
+
+match_block :: ParsecT [InfoAndToken] MyState IO [Token]
+match_block = do
+        a <- openBracketsToken
+        b <- form_blocks_opt
+        c <- closeBracketsToken
+        return ((a:b) ++ [c])
+
+form_blocks_opt :: ParsecT [InfoAndToken] MyState IO [Token]
+form_blocks_opt = (do a <- formToken; b <- form_blocks_start; return (a:b)) <|> (return [])
+
+form_blocks_start :: ParsecT [InfoAndToken] MyState IO [Token]
+form_blocks_start = (do
+                a <- idToken
+                b <- openParenthesesToken
+                c <- idsOpt
+                -- TODO: check if the arguments match with the informed type at match_rule
+                d <- closeParenthesesToken
+                e <- form_block
+                return ((a:b:c) ++ (d:e)))
+                <|>
+                (do
+                (_, _, a) <- literal
+                b <- form_block
+                return (a:b))
+
+form_block :: ParsecT [InfoAndToken] MyState IO [Token]
+form_block = do
+            a <- colonToken
+            b <- stmts_op
+            c <- form_blocks_opt
+            return ((a:b) ++ c)
+
+idsOpt :: ParsecT [InfoAndToken] MyState IO [Token]
+idsOpt = (do a <- idToken; b <- ids; return (a:b)) <|> (return [])
+
+ids :: ParsecT [InfoAndToken] MyState IO [Token]
+ids = (do a <- commaToken
+          b <- idToken
+          c <- ids
+          return (a:b:c)) <|> (return [])
+
 ----------------- Others -----------------
 
 --literals :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
