@@ -313,6 +313,16 @@ doUnaryOpFloating x Minus = -x
 doUnaryOpBoolean :: Bool -> Token -> Bool
 doUnaryOpBoolean x Not = not x
 
+showLiteral :: Token -> String
+showLiteral (NatLiteral x) = show x
+showLiteral (IntLiteral x) = show x
+showLiteral (FloatLiteral x) = show x
+showLiteral (BoolLiteral x) = show x
+showLiteral (StringLiteral x) = show x
+showLiteral (CharLiteral x) = show x
+showLiteral (UnitLiteral x) = show x
+showLiteral x = show x
+
 ----------------- Others -----------------
 
 print_state :: ParsecT [InfoAndToken] MyState IO ()

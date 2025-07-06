@@ -120,6 +120,13 @@ stmt = (do a <- decl_or_atrib; return (Unit, a))
     -- TODO: when semantic -> return value to function call
     c <- semiColonToken
     return (b_type, (a:b) ++ [c]))
+   <|> (do
+    a <- printToken
+    (_, b_value, b) <- exp_rule
+    c <- semiColonToken
+    liftIO (putStrLn $ showLiteral b_value)
+    return (Unit, (a:b) ++ [c])
+   )
 
 exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 exp_rule = (do a <- boolean_and_arithm_exp; return a)

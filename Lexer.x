@@ -85,6 +85,7 @@ tokens :-
   "types:"                              { \p _ -> (getLC p, Types) }
   "decls:"                              { \p _ -> (getLC p, Decls) }
   "main:"                               { \p _ -> (getLC p, Main) }
+  "spit"                                { \p _ -> (getLC p, Print) }
   $L[$L $D \_ \']*	                    { \p s -> (getLC p, Id s) }
 {
 
@@ -164,6 +165,7 @@ data Token =
   Types |
   Decls |
   Main |
+  Print |
   ErrorToken |
   NoneToken
   deriving (Eq,Show)
