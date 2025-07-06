@@ -70,7 +70,7 @@ init_or_decl id_token = (do -- Assignment
                 --
                 s <- getState; pos <- getPosition
                 type_check pos s check_eq id_token exp_type
-                updateState (symtable_update_variable (id_token, exp_value, []))
+                updateState (symtable_update_variable (id_token, exp_value, dontChangeFunctionBody))
                 --
                 return (a:b))
                 <|>
@@ -84,7 +84,7 @@ init_or_decl id_token = (do -- Assignment
                 s <- getState; pos <- getPosition
                 type_check pos s check_eq id_token exp_type
                 let var_value = if c == [] then get_default_value b else exp_value
-                updateState (symtable_update_variable (id_token, var_value, []))
+                updateState (symtable_update_variable (id_token, var_value, dontChangeFunctionBody))
                 --
                 return (a:b:c))
 
@@ -512,7 +512,7 @@ fun_decl = do
         f <- colonToken
         g <- types
         --
-        updateState (symtable_update_variable_type (b, g)) -- TODO: symtable_update_variable_type
+        updateState (symtable_update_variable_type (b, g)) -- this is currently not working for unknown reasons...
         --
         (h_type, h) <- block
         --
@@ -521,7 +521,7 @@ fun_decl = do
         --
         updateState (remove_current_scope_name)
         --
-        updateState (symtable_update_variable (b, h))
+        updateState (symtable_update_variable (b, dontChangeType, h))
         --
         return ([a, b, c] ++ d ++ [e, f, g] ++ h)
 
@@ -535,7 +535,7 @@ params = do
         --
         (e_type, e_value, e) <- atrib_opt d
         let var_value = if e == [] then get_default_value d else e_value
-        updateState (symtable_update_variable (b, var_value, []))
+        updateState (symtable_update_variable (b, var_value, dontChangeFunctionBody))
         liftIO (putStrLn "params_declaration:")
         print_state
         --
@@ -574,6 +574,9 @@ types =
   <|> (do a <- typeToken; return a)
   <|> (do a <- unitToken; return a)
   <|> fail "Not a valid type"
+
+dontChangeFunctionBody = [NoneToken]
+dontChangeType = NoneToken
 
 ---------------------------------------------------
 ----------------- Parser invocation

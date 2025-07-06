@@ -164,7 +164,8 @@ data Token =
   Types |
   Decls |
   Main |
-  ErrorToken
+  ErrorToken |
+  NoneToken
   deriving (Eq,Show)
 
 getLC (AlexPn _ l c) = (l, c)

@@ -124,19 +124,19 @@ get_var_info_from_scope scope_name var_name (varx:varxs) = let (namex, typex, va
 -- wrapper for symtable_update_variable'
 symtable_update_variable :: (Token, Value, FunctionBody) -> MyState -> MyState
 symtable_update_variable (Id var_name, value, funcb) [(vars, sk, ts, sp, pc, scope_name)] = do
-  [(symtable_update_variable' scope_name (var_name, value, funcb) vars, sk, ts, sp, pc, scope_name)]
+  [(symtable_update_variable' scope_name (var_name, NoneToken, value, funcb) vars, sk, ts, sp, pc, scope_name)]
 
 -- updates tree bottom-up
-symtable_update_variable' :: ScopeName -> (Name, Value, FunctionBody) -> Variables -> Variables
-symtable_update_variable' _ (name, _, _) NoChildren = error_msg "Variable '%' not found" [name]
-symtable_update_variable' [] (name, _, _) _ = error_msg "Variable '%' not found" [name]
+symtable_update_variable' :: ScopeName -> (Name, MyType, Value, FunctionBody) -> Variables -> Variables
+symtable_update_variable' _ (name, _, _, _) NoChildren = error_msg "Variable '%' not found" [name]
+symtable_update_variable' [] (name, _, _, _) _ = error_msg "Variable '%' not found" [name]
 symtable_update_variable' scope_name var vars =
   case update_scope_tree scope_name vars var of
     NoChildren -> symtable_update_variable' (reverse $ tail $ reverse scope_name) var vars -- search in current scope failed, go one up
     new_vars -> new_vars -- search successful
 
 -- updates a certain node of the tree
-update_scope_tree :: ScopeName -> Variables -> (Name, Value, FunctionBody) -> ScopeTree
+update_scope_tree :: ScopeName -> Variables -> (Name, MyType, Value, FunctionBody) -> ScopeTree
 update_scope_tree [] _ _ = NoChildren -- not found
 update_scope_tree _ NoChildren _ = NoChildren -- not found
 update_scope_tree (scope_namex:scope_namexs) (Node name vars children) var = 
@@ -144,12 +144,17 @@ update_scope_tree (scope_namex:scope_namexs) (Node name vars children) var =
     if scope_namexs == [] then (Node name (update_in_variables var vars) children) else (Node name vars (update_scope_tree scope_namexs children var))  -- search is successful
     else NoChildren -- not found
 
--- (variable name, value) -> ...
-update_in_variables :: (Name, Value, FunctionBody) -> [Var] -> [Var]
+
+update_attr new prev = if new /= NoneToken then new else prev
+
+-- (variable name, type, value, funcbody) -> ...
+update_in_variables :: (Name, MyType, Value, FunctionBody) -> [Var] -> [Var]
 update_in_variables _ [] = []
-update_in_variables (name, value, funcb) (varx:varxs) =
-  let (namex, typex, _, funcbx) = varx in
-  if name == namex then ((namex, typex, value, if funcb == [] then funcbx else funcb):varxs) else (varx : update_in_variables (name, value, funcb) varxs)
+update_in_variables (name, _type, value, funcb) (varx:varxs) =
+  let (namex, typex, valuex, funcbx) = varx in
+  if name == namex
+  then ((namex, update_attr _type typex, update_attr value valuex, if (head funcb) /= NoneToken then funcb else funcbx):varxs)
+  else (varx : update_in_variables (name, _type, value, funcb) varxs)
 
 symtable_remove_scope :: ScopeName -> Variables -> Variables
 symtable_remove_scope _ NoChildren = error_msg "dame" []
@@ -160,6 +165,10 @@ symtable_remove_scope (scope_namex:[]) (Node name vars children) =
 symtable_remove_scope (scope_namex:scope_namexs) (Node name vars children) = 
   if scope_namex == name then (Node name vars (symtable_remove_scope scope_namexs children))
   else error_msg "dame" []
+
+symtable_update_variable_type :: (Token, MyType) -> MyState -> MyState
+symtable_update_variable_type (Id var_name, _type) [(vars, sk, ts, sp, pc, scope_name)] = do
+  [(symtable_update_variable' scope_name (var_name, _type, NoneToken, [NoneToken]) vars, sk, ts, sp, pc, scope_name)]
 
 ----------------- Semantic -----------------
 
