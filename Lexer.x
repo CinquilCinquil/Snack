@@ -12,7 +12,7 @@ $L = [a-zA-Z]
 tokens :-
 
   $white+                               ;
-  "--".*.                               ;
+  "--".+                                ;
   -- Punctuations / Parantheses
   ","                                   { \p _ -> (getLC p, Comma)}
   :                                     { \p _ -> (getLC p, Colon)}
