@@ -129,3 +129,4 @@ importToken = tokenParser Import
 typesToken = tokenParser Types
 declsToken = tokenParser Decls
 mainToken = tokenParser Main
+returnToken = tokenParser Return

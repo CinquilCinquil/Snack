@@ -80,12 +80,12 @@ tokens :-
   -- missing other primary types such as unit, empty, matrix...
 
   -- Others
+  "return"                              { \p _ -> (getLC p, Return) }
+  "import"                              { \p _ -> (getLC p, Import) }
+  "types:"                              { \p _ -> (getLC p, Types) }
+  "decls:"                              { \p _ -> (getLC p, Decls) }
+  "main:"                               { \p _ -> (getLC p, Main) }
   $L[$L $D \_ \']*	                    { \p s -> (getLC p, Id s) }
-  import                                { \p _ -> (getLC p, Import) }
-  types:                                { \p _ -> (getLC p, Types) }
-  decls:                                { \p _ -> (getLC p, Decls) }
-  main:                                 { \p _ -> (getLC p, Main) }
-  return                                { \p _ -> (getLC p, Return) }
 {
 
 -- The token type:
@@ -159,11 +159,11 @@ data Token =
   UnitLiteral () |
   -- Others
   Id String |
+  Return |
   Import |
   Types |
   Decls |
   Main |
-  Return |
   ErrorToken
   deriving (Eq,Show)
 

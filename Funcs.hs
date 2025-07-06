@@ -165,31 +165,39 @@ symtable_remove_scope (scope_namex:scope_namexs) (Node name vars children) =
 get_value_from_exp :: [Token] -> MyState -> Token
 get_value_from_exp expression [(vars, sk, ts, sp, pc, sn)] = IntLiteral 0
 
+-- wrapper for type_check'
 -- pos -> State -> type checking function -> type or identifier token -> type or identifier token -> ...
-type_check :: SourcePos -> MyState -> (SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
+type_check :: SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
+type_check pos state check var_name _type = type_check' "" pos state check var_name _type
+
+-- wrapper for type_check'
+type_check_with_msg :: String -> SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
+type_check_with_msg extra_msg pos state check var_name _type = type_check' extra_msg pos state check var_name _type
+
+type_check' :: String -> SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
 -- TODO: _type (Id var_name) case 
 -- TODO: (Id var_name) (Id var_name) case 
-type_check pos state check (Id var_name) _type = do
+type_check' extra_msg pos state check (Id var_name) _type = do
   case lookup_var var_name state of
     (_, _, ErrorToken) -> error_msg "Variable '%' not declared! Line: % Column: %" [var_name, showLine pos, showColumn pos]
-    (_, var_type, _) -> if check pos var_type _type then return () else error ""
-type_check pos state check type1 type2 = if check pos type1 type2 then return () else error ""
-    
-check_eq :: SourcePos -> MyType -> MyType -> Bool
-check_eq pos t1 t2 = if t1 == t2 then True
-else error_msg "Types '%' and '%' do not match! Line: % Column: %" [show t1, show t2, showLine pos, showColumn pos]
+    (_, var_type, _) -> if check extra_msg pos var_type _type then return () else error ""
+type_check' extra_msg pos state check type1 type2 = if check extra_msg pos type1 type2 then return () else error ""
 
-check_arithm :: SourcePos -> MyType -> MyType -> Bool
-check_arithm pos t1 t2 = if (check_eq pos t1 t2) && (isArithm t1) && (isArithm t2) then True
-else error_msg "Types '%' and/or '%' are not arithmetic! Line: % Column: %" [show t1, show t2, showLine pos, showColumn pos]
+check_eq :: String -> SourcePos -> MyType -> MyType -> Bool
+check_eq extra_msg pos t1 t2 = if t1 == t2 then True
+else error_msg "% Types '%' and '%' do not match! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
 
-check_integral :: SourcePos -> MyType -> MyType -> Bool
-check_integral pos t1 t2 = if (check_eq pos t1 t2) && (isIntegral t2) then True
-else error_msg "Types '%' and/or '%' are not integral! Line: % Column: %" [show t1, show t2, showLine pos, showColumn pos]
+check_arithm :: String -> SourcePos -> MyType -> MyType -> Bool
+check_arithm extra_msg pos t1 t2 = if (check_eq extra_msg pos t1 t2) && (isArithm t1) && (isArithm t2) then True
+else error_msg "% Types '%' and/or '%' are not arithmetic! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
 
-check_bool :: SourcePos -> MyType -> MyType -> Bool
-check_bool pos t1 t2 = if (check_eq pos t1 t2) && (t2 == TBool) then True
-else error_msg "Types '%' and/or '%' are not boolean! Line: % Column: %" [show t1, show t2, showLine pos, showColumn pos]
+check_integral :: String -> SourcePos -> MyType -> MyType -> Bool
+check_integral extra_msg pos t1 t2 = if (check_eq extra_msg pos t1 t2) && (isIntegral t2) then True
+else error_msg "Types '%' and/or '%' are not integral! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
+
+check_bool :: String -> SourcePos -> MyType -> MyType -> Bool
+check_bool extra_msg pos t1 t2 = if (check_eq extra_msg pos t1 t2) && (t2 == TBool) then True
+else error_msg "Types '%' and/or '%' are not boolean! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
 
 -- TODO: support type equivalence!?
 isArithm :: MyType -> Bool
