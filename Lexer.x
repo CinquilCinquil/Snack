@@ -67,6 +67,7 @@ tokens :-
   string                                { \p _ -> (getLC p, String) }
   float                                 { \p _ -> (getLC p, Float) }
   bool                                  { \p _ -> (getLC p, TBool) }
+  unit                                  { \p _ -> (getLC p, Unit) }
   -- Literals
   O	                                    { \p s -> (getLC p, NatLiteral 0) }
   S$D+	                                { \p s -> (getLC p, NatLiteral $ 1 + (read (tail s))) }
@@ -75,7 +76,6 @@ tokens :-
   \"([^\"\\]|\\.)*\"                    { \p s -> (getLC p, StringLiteral $ read s) }
   \'.+\'                                { \p s -> (getLC p, CharLiteral (read s)) }
   "true"|"false"                        { \p s -> (getLC p, BoolLiteral (s == "true")) }
-  --"True"|"False"                            { \p s -> (getLC p, BoolLiteral $ (\b -> if b == "True" then True else False) (read s)) }
   
   -- missing other primary types such as unit, empty, matrix...
 
@@ -148,6 +148,7 @@ data Token =
   TChar |
   Float |
   TBool |
+  Unit |
   -- Literals
   NatLiteral Int |
   IntLiteral Int |
@@ -155,6 +156,7 @@ data Token =
   CharLiteral Char |
   FloatLiteral Float |
   BoolLiteral Bool |
+  UnitLiteral () |
   -- Others
   Id String |
   Import |

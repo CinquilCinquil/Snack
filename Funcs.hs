@@ -211,6 +211,7 @@ get_default_value String = StringLiteral ""
 get_default_value TChar = CharLiteral '\a'
 get_default_value Float = FloatLiteral 0.0
 get_default_value TBool = BoolLiteral False
+get_default_value Unit = UnitLiteral ()
 
 doOpOnTokens :: Token -> Token -> Token -> Token
 doOpOnTokens (NatLiteral x) (NatLiteral y) op

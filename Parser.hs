@@ -102,17 +102,6 @@ stmt = (do a <- decl_or_atrib; return a)
    <|> (do a <- fun_decl; return a)
    <|> (do a <- structures;return a) 
 
-types :: ParsecT [InfoAndToken] MyState IO (Token)
-types =
-  (do a <- natToken; return a)
-  <|> (do a <- intToken; return a)
-  <|> (do a <- stringToken; return a)
-  <|> (do a <- floatToken; return a ) 
-  <|> (do a <- charToken; return a)
-  <|> (do a <- boolToken; return a)
-  <|> (do a <- typeToken; return a)
-  <|> fail "Not a valid type"
-
 exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 exp_rule = (do a <- boolean_and_arithm_exp; return a)
        <|> (do a <- function_call; return a)
@@ -532,7 +521,20 @@ literal = (do a <- natLiteralToken; return (Nat, a, a))
   <|> (do a <- floatLiteralToken; return (Float, a, a))
   <|> (do a <- charLiteralToken; return (TChar, a, a))
   <|> (do a <- boolLiteralToken; return (TBool, a, a))
+  <|> (do a <- openParenthesesToken; b <- closeParenthesesToken; return (Unit, UnitLiteral (), UnitLiteral ()))
   <|> fail "Not a valid literal"
+
+types :: ParsecT [InfoAndToken] MyState IO (Token)
+types =
+  (do a <- natToken; return a)
+  <|> (do a <- intToken; return a)
+  <|> (do a <- stringToken; return a)
+  <|> (do a <- floatToken; return a ) 
+  <|> (do a <- charToken; return a)
+  <|> (do a <- boolToken; return a)
+  <|> (do a <- typeToken; return a)
+  <|> (do a <- unitToken; return a)
+  <|> fail "Not a valid type"
 
 ---------------------------------------------------
 ----------------- Parser invocation

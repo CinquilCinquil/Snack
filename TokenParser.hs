@@ -84,6 +84,7 @@ stringToken = tokenParser String
 charToken = tokenParser TChar
 floatToken = tokenParser Float
 boolToken = tokenParser TBool
+unitToken = tokenParser Unit
 
 -- Literals
 
