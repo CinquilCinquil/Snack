@@ -68,7 +68,8 @@ tokens :-
   float                                 { \p _ -> (getLC p, Float) }
   bool                                  { \p _ -> (getLC p, TBool) }
   -- Literals
-  S$D+	                                { \p s -> (getLC p, NatLiteral $ read (tail s)) }
+  O	                                    { \p s -> (getLC p, NatLiteral 0) }
+  S$D+	                                { \p s -> (getLC p, NatLiteral $ 1 + (read (tail s))) }
   $D+	                                  { \p s -> (getLC p, IntLiteral (read s)) }
   ($D+"."$D+)(e[\+\-]$D$D)?	            { \p s -> (getLC p, FloatLiteral (read s)) }
   \"([^\"\\]|\\.)*\"                    { \p s -> (getLC p, StringLiteral $ read s) }

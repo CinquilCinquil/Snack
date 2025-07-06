@@ -418,41 +418,54 @@ match_rule = do
         --
         updateState (add_current_scope_name "match")
         --
-        d <- match_block
+        d <- match_block b
         --
         updateState (remove_current_scope_name)
         return (a:b:c:d)
 
-match_block :: ParsecT [InfoAndToken] MyState IO [Token]
-match_block = do
+match_block :: Token -> ParsecT [InfoAndToken] MyState IO [Token]
+match_block id_token = do
         a <- openBracketsToken
-        b <- form_blocks_opt
+        b <- form_blocks_opt id_token
         c <- closeBracketsToken
         return ((a:b) ++ [c])
 
-form_blocks_opt :: ParsecT [InfoAndToken] MyState IO [Token]
-form_blocks_opt = (do a <- formToken; b <- form_blocks_start; return (a:b)) <|> (return [])
+form_blocks_opt :: Token -> ParsecT [InfoAndToken] MyState IO [Token]
+form_blocks_opt id_token = (do
+                        a <- formToken
+                        --
+                        updateState (add_current_scope_name "form")
+                        --
+                        b <- form_blocks_start id_token
+                        return (a:b)) <|> (return [])
 
-form_blocks_start :: ParsecT [InfoAndToken] MyState IO [Token]
-form_blocks_start = (do
+form_blocks_start :: Token -> ParsecT [InfoAndToken] MyState IO [Token]
+form_blocks_start id_token = (do
                 a <- idToken
                 b <- openParenthesesToken
                 c <- idsOpt
-                -- TODO: check if the arguments match with the informed type at match_rule
+                -- TODO: check if the number of arguments match that of the type of id_token
                 d <- closeParenthesesToken
-                e <- form_block
+                e <- form_block id_token
                 return ((a:b:c) ++ (d:e)))
                 <|>
                 (do
-                (_, _, a) <- literal
-                b <- form_block
+                (a_type, _, a) <- literal
+                --
+                s <- getState; pos <- getPosition
+                let (Id id_token_name) = id_token
+                let (_, id_token_type, _) = lookup_var id_token_name s
+                type_check pos s check_eq id_token_type a_type
+                --
+                b <- form_block id_token
                 return (a:b))
 
-form_block :: ParsecT [InfoAndToken] MyState IO [Token]
-form_block = do
+form_block :: Token -> ParsecT [InfoAndToken] MyState IO [Token]
+form_block id_token = do
             a <- colonToken
             b <- stmts_op
-            c <- form_blocks_opt
+            updateState (remove_current_scope_name)
+            c <- form_blocks_opt id_token
             return ((a:b) ++ c)
 
 idsOpt :: ParsecT [InfoAndToken] MyState IO [Token]
@@ -470,7 +483,7 @@ ids = (do a <- commaToken
 --literals = (do a <- literal; return a) <|> (do a <- literals; return a)
 
 literal :: ParsecT [InfoAndToken] MyState IO (MyType, Value, Token)
-literal = (do NatLiteral n <- natLiteralToken; return (Nat, NatLiteral (n + 1), NatLiteral n))
+literal = (do a <- natLiteralToken; return (Nat, a, a))
   <|> (do a <- intLiteralToken; return (Int, a, a))
   <|> (do a <- stringLiteralToken; return (String, a, a))
   <|> (do a <- floatLiteralToken; return (Float, a, a))

@@ -24,7 +24,7 @@ data ScopeTree =
   | NoChildren
   deriving (Eq,Show) 
 type Name = String
-type Var = (String, MyType, Value)
+type Var = (Name, MyType, Value)
 type Value = Token
 type MyType = Token
 type Form = (Name, Args)
