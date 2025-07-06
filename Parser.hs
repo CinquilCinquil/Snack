@@ -98,7 +98,9 @@ stmts_op :: ParsecT [InfoAndToken] MyState IO ([Token])
 stmts_op = (do a <- stmts; return a) <|> (return [])
 
 stmt :: ParsecT [InfoAndToken] MyState IO ([Token])
-stmt = (do a <- decl_or_atrib; return a) <|> (do a <- structures;return a)
+stmt = (do a <- decl_or_atrib; return a)
+   <|> (do a <- fun_decl; return a)
+   <|> (do a <- structures;return a) 
 
 types :: ParsecT [InfoAndToken] MyState IO (Token)
 types =
@@ -476,6 +478,47 @@ ids = (do a <- commaToken
           b <- idToken
           c <- ids
           return (a:b:c)) <|> (return [])
+
+fun_decl :: ParsecT [InfoAndToken] MyState IO [Token]
+fun_decl = do
+        a <- funToken
+        b <- idToken
+        c <- openParenthesesToken
+        --
+        updateState (add_current_scope_name "fun")
+        --
+        (d_types, _, d) <- (do a <- params; return a) <|> (return ([], [], []))
+        e <- closeParenthesesToken
+        f <- colonToken
+        g <- types
+        h <- block
+        --
+        updateState (remove_current_scope_name)
+        --
+        return ([a, b, c] ++ d ++ [e, f, g] ++ h)
+
+params :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
+params = do
+        b <- idToken
+        c <- colonToken
+        d <- types
+        --
+        updateState (symtable_insert_variable (b, d, get_default_value d))
+        --
+        (e_type, e_value, e) <- atrib_opt d
+        let var_value = if e == [] then get_default_value d else e_value
+        updateState (symtable_update_variable (b, var_value))
+        liftIO (putStrLn "params_declaration:")
+        print_state
+        --
+        (f_types, f_values, f) <- params_op
+        return (e_type:f_types, e_value:f_values, (b:c:[d]) ++ e ++ f)
+
+params_op :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
+params_op = (do
+            a <- commaToken
+            (b_types, b_values, b) <- params
+            return (b_types, b_values, (a:b))) <|> (return ([], [], []))
 
 ----------------- Others -----------------
 
