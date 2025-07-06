@@ -72,10 +72,6 @@ add_current_scope_name name [(vars, sk, ts, sp, pc, scope_name)] =
     NoChildren -> error_msg "Failed adding to scope" []
     new_vars -> [(new_vars, sk, ts, sp, pc, scope_name ++ [name])]
 
-remove_current_scope_name :: MyState -> MyState
-remove_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = 
-  [(symtable_remove_scope scope_name vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name)]
-
 append_scope :: Variables -> ScopeName -> Name -> Variables
 append_scope NoChildren _ _ = NoChildren
 append_scope (Node _ _ NoChildren) [] _ = NoChildren
@@ -141,12 +137,16 @@ update_scope_tree [] _ _ = NoChildren -- not found
 update_scope_tree _ NoChildren _ = NoChildren -- not found
 update_scope_tree (scope_namex:scope_namexs) (Node name vars children) var = 
   if scope_namex == name then -- up until now search is successful
-    if scope_namexs == [] then (Node name (update_in_variables var vars) children) else (Node name vars (update_scope_tree scope_namexs children var))  -- search is successful
-    else NoChildren -- not found
-
+    if scope_namexs == [] then do
+      case update_in_variables var vars of
+        [] -> NoChildren -- not found
+        new_vars -> (Node name new_vars children)  -- search is successful
+    else case update_scope_tree scope_namexs children var of
+      NoChildren -> NoChildren -- not found
+      new_children -> (Node name vars new_children)  -- search is successful
+  else NoChildren -- not found
 
 update_attr new prev = if new /= NoneToken then new else prev
-
 -- (variable name, type, value, funcbody) -> ...
 update_in_variables :: (Name, MyType, Value, FunctionBody) -> [Var] -> [Var]
 update_in_variables _ [] = []
@@ -156,19 +156,25 @@ update_in_variables (name, _type, value, funcb) (varx:varxs) =
   then ((namex, update_attr _type typex, update_attr value valuex, if (head funcb) /= NoneToken then funcb else funcbx):varxs)
   else (varx : update_in_variables (name, _type, value, funcb) varxs)
 
-symtable_remove_scope :: ScopeName -> Variables -> Variables
-symtable_remove_scope _ NoChildren = error_msg "dame" []
-symtable_remove_scope [] _ = error_msg "dame" []
-symtable_remove_scope (scope_namex:[]) (Node name vars children) = 
-  if scope_namex == name then NoChildren 
-  else error_msg "dame" []
-symtable_remove_scope (scope_namex:scope_namexs) (Node name vars children) = 
-  if scope_namex == name then (Node name vars (symtable_remove_scope scope_namexs children))
-  else error_msg "dame" []
-
 symtable_update_variable_type :: (Token, MyType) -> MyState -> MyState
 symtable_update_variable_type (Id var_name, _type) [(vars, sk, ts, sp, pc, scope_name)] = do
   [(symtable_update_variable' scope_name (var_name, _type, NoneToken, [NoneToken]) vars, sk, ts, sp, pc, scope_name)]
+
+----------------- Remove -------------------
+
+remove_current_scope_name :: MyState -> MyState
+remove_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = 
+  [(symtable_remove_scope scope_name vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name)]
+
+symtable_remove_scope :: ScopeName -> Variables -> Variables
+symtable_remove_scope scope_name NoChildren = error_msg "Failure in leaving scope '%'" [show scope_name]
+symtable_remove_scope [] _ = error_msg "Failure in leaving scope" []
+symtable_remove_scope (scope_namex:[]) (Node name vars children) = 
+  if scope_namex == name then NoChildren 
+  else error_msg "Failure in leaving scope '%'" [scope_namex]
+symtable_remove_scope (scope_namex:scope_namexs) (Node name vars children) = 
+  if scope_namex == name then (Node name vars (symtable_remove_scope scope_namexs children))
+  else error_msg "Failure in leaving scope '%'" [scope_namex]
 
 ----------------- Semantic -----------------
 

@@ -512,7 +512,7 @@ fun_decl = do
         f <- colonToken
         g <- types
         --
-        updateState (symtable_update_variable_type (b, g)) -- this is currently not working for unknown reasons...
+        updateState (symtable_update_variable_type (b, g))
         --
         (h_type, h) <- block
         --
