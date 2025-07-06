@@ -24,7 +24,8 @@ data ScopeTree =
   | NoChildren
   deriving (Eq,Show) 
 type Name = String
-type Var = (Name, MyType, Value)
+type Var = (Name, MyType, Value, FunctionBody)
+type FunctionBody = [Token]
 type Value = Token
 type MyType = Token
 type Form = (Name, Args)
@@ -37,11 +38,11 @@ type Args = ()
 ----------------- Insert -----------------
 
 -- (Identifier token, Type token, value) -> ...
-symtable_insert_variable :: (Token, Token, Value) -> MyState -> MyState
+symtable_insert_variable :: (Token, Token, Value, FunctionBody) -> MyState -> MyState
 symtable_insert_variable var [(vars, sk, ts, sp, pc, scope_name)] = [(append_to_scope scope_name var vars, sk, ts, sp, pc, scope_name)]
 
 -- Scope name -> (Identifier token, Type token, value) -> Tree node -> ...
-append_to_scope :: ScopeName -> (Token, Token, Value) -> Variables -> Variables
+append_to_scope :: ScopeName -> (Token, Token, Value, FunctionBody) -> Variables -> Variables
 -- Base:
 append_to_scope (scope_namex:[]) var (Node name vars children) =
   if scope_namex == name then (Node name (append_to_variables var vars) children) -- insertion successful
@@ -53,17 +54,17 @@ append_to_scope (scope_namex:scope_namexs) var (Node name vars children) =
   else error_msg "In var declaration, scope '%' not found!" [show (scope_namex:scope_namexs)]
 
 -- (Identifier token, Type token, value) -> ...
-append_to_variables :: (Token, Token, Value) -> [Var] -> [Var]
+append_to_variables :: (Token, Token, Value, FunctionBody) -> [Var] -> [Var]
 append_to_variables var [] = [makeVar var]
 append_to_variables var (varx:varxs) =
-  let (Id name, _, _) = var in
-  let (namex, typex, _) = varx in
+  let (Id name, _, _, _) = var in
+  let (namex, typex, _, _) = varx in
   if name == namex then error_msg "Variable with name '%' already declared as a '%'" [name, show typex]
   else (varx : append_to_variables var varxs)
 
 -- Turns tokens into a Var type
-makeVar :: (Token, Token, Value) -> Var
-makeVar (Id name, type_, value) = (name, type_, value)
+makeVar :: (Token, Token, Value, FunctionBody) -> Var
+makeVar (Id name, type_, value, funcb) = (name, type_, value, funcb)
 
 add_current_scope_name :: Name -> MyState -> MyState
 add_current_scope_name name [(vars, sk, ts, sp, pc, scope_name)] =
@@ -100,7 +101,7 @@ lookup_var' var_name vars scope_name =
     NoChildren -> var_error
     (Node node_name node_vars _) ->
       case get_var_info_from_scope node_name var_name node_vars of
-        (_, _, ErrorToken) -> lookup_var' var_name vars (reverse $ tail $ reverse scope_name) -- search in current scope failed, go one up
+        (_, _, ErrorToken, _) -> lookup_var' var_name vars (reverse $ tail $ reverse scope_name) -- search in current scope failed, go one up
         var -> var -- search successful
 
 -- searches for a certain node of the tree
@@ -115,40 +116,40 @@ search_scope_tree (scope_namex:scope_namexs) (Node name vars children) =
 -- OBS: scope_name here is not a list like in MyState, its the name of a single strucure, like 'if' or a function name
 get_var_info_from_scope :: Name -> Name -> [Var] -> Var
 get_var_info_from_scope scope_name var_name [] = var_error
-get_var_info_from_scope scope_name var_name (varx:varxs) = let (namex, typex, valuex) = varx in
-  if var_name == namex then (namex, typex, valuex) else get_var_info_from_scope scope_name var_name varxs
+get_var_info_from_scope scope_name var_name (varx:varxs) = let (namex, typex, valuex, funcbx) = varx in
+  if var_name == namex then (namex, typex, valuex, funcbx) else get_var_info_from_scope scope_name var_name varxs
 
 ----------------- Update -------------------
 
 -- wrapper for symtable_update_variable'
-symtable_update_variable :: (Token, Value) -> MyState -> MyState
-symtable_update_variable (Id var_name, value) [(vars, sk, ts, sp, pc, scope_name)] = do
-  [(symtable_update_variable' scope_name (var_name, value) vars, sk, ts, sp, pc, scope_name)]
-
--- (variable name, value) -> ...
-update_in_variables :: (Name, Value) -> [Var] -> [Var]
-update_in_variables _ [] = []
-update_in_variables (name, value) (varx:varxs) =
-  let (namex, typex, _) = varx in
-  if name == namex then ((namex, typex, value):varxs) else (varx : update_in_variables (name, value) varxs)
+symtable_update_variable :: (Token, Value, FunctionBody) -> MyState -> MyState
+symtable_update_variable (Id var_name, value, funcb) [(vars, sk, ts, sp, pc, scope_name)] = do
+  [(symtable_update_variable' scope_name (var_name, value, funcb) vars, sk, ts, sp, pc, scope_name)]
 
 -- updates tree bottom-up
-symtable_update_variable' :: ScopeName -> (Name, Value) -> Variables -> Variables
-symtable_update_variable' _ (name, _) NoChildren = error_msg "Variable '%' not found" [name]
-symtable_update_variable' [] (name, _) _ = error_msg "Variable '%' not found" [name]
+symtable_update_variable' :: ScopeName -> (Name, Value, FunctionBody) -> Variables -> Variables
+symtable_update_variable' _ (name, _, _) NoChildren = error_msg "Variable '%' not found" [name]
+symtable_update_variable' [] (name, _, _) _ = error_msg "Variable '%' not found" [name]
 symtable_update_variable' scope_name var vars =
   case update_scope_tree scope_name vars var of
     NoChildren -> symtable_update_variable' (reverse $ tail $ reverse scope_name) var vars -- search in current scope failed, go one up
     new_vars -> new_vars -- search successful
 
 -- updates a certain node of the tree
-update_scope_tree :: ScopeName -> Variables -> (Name, Value) -> ScopeTree
+update_scope_tree :: ScopeName -> Variables -> (Name, Value, FunctionBody) -> ScopeTree
 update_scope_tree [] _ _ = NoChildren -- not found
 update_scope_tree _ NoChildren _ = NoChildren -- not found
 update_scope_tree (scope_namex:scope_namexs) (Node name vars children) var = 
   if scope_namex == name then -- up until now search is successful
     if scope_namexs == [] then (Node name (update_in_variables var vars) children) else (Node name vars (update_scope_tree scope_namexs children var))  -- search is successful
     else NoChildren -- not found
+
+-- (variable name, value) -> ...
+update_in_variables :: (Name, Value, FunctionBody) -> [Var] -> [Var]
+update_in_variables _ [] = []
+update_in_variables (name, value, funcb) (varx:varxs) =
+  let (namex, typex, _, funcbx) = varx in
+  if name == namex then ((namex, typex, value, if funcb == [] then funcbx else funcb):varxs) else (varx : update_in_variables (name, value, funcb) varxs)
 
 symtable_remove_scope :: ScopeName -> Variables -> Variables
 symtable_remove_scope _ NoChildren = error_msg "dame" []
@@ -179,8 +180,8 @@ type_check' :: String -> SourcePos -> MyState -> (String -> SourcePos -> MyType 
 -- TODO: (Id var_name) (Id var_name) case 
 type_check' extra_msg pos state check (Id var_name) _type = do
   case lookup_var var_name state of
-    (_, _, ErrorToken) -> error_msg "Variable '%' not declared! Line: % Column: %" [var_name, showLine pos, showColumn pos]
-    (_, var_type, _) -> if check extra_msg pos var_type _type then return () else error ""
+    (_, _, ErrorToken, _) -> error_msg "Variable '%' not declared! Line: % Column: %" [var_name, showLine pos, showColumn pos]
+    (_, var_type, _, _) -> if check extra_msg pos var_type _type then return () else error ""
 type_check' extra_msg pos state check type1 type2 = if check extra_msg pos type1 type2 then return () else error ""
 
 check_eq :: String -> SourcePos -> MyType -> MyType -> Bool
@@ -304,7 +305,7 @@ print_state = do
               s <- getState
               liftIO (print s)
 
-var_error = ("", ErrorToken, ErrorToken)
+var_error = ("", ErrorToken, ErrorToken, [])
 
 error_msg :: String -> [String] -> a
 error_msg msg args = error ("\n##### ERROR ######\n\n" ++ (replace '%' args msg) ++ "\n\n##########")

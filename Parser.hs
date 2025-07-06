@@ -35,16 +35,22 @@ declarations = do
                 return (a ++ b)
 
 declaration :: ParsecT [InfoAndToken] MyState IO ([Token])
-declaration = do
+declaration = (do
               b <- idToken
               c <- colonToken
               d <- types
               e <- semiColonToken
               s <- getState
-              updateState (symtable_insert_variable (b, d, get_default_value d))
+              updateState (symtable_insert_variable (b, d, get_default_value d, []))
               liftIO (putStrLn "declaration:")
               print_state
-              return (b:c:d:[e])
+              return (b:c:d:[e]))
+              <|>
+              (do
+              a <- fun_decl
+              liftIO (putStrLn "fun_declaration:")
+              print_state
+              return a)
 
 ----------------- Main -----------------
 
@@ -64,7 +70,7 @@ init_or_decl id_token = (do -- Assignment
                 --
                 s <- getState; pos <- getPosition
                 type_check pos s check_eq id_token exp_type
-                updateState (symtable_update_variable (id_token, exp_value))
+                updateState (symtable_update_variable (id_token, exp_value, []))
                 --
                 return (a:b))
                 <|>
@@ -73,12 +79,12 @@ init_or_decl id_token = (do -- Assignment
                 b <- types
                 (exp_type, exp_value, c) <- atrib_opt b
                 --
-                updateState (symtable_insert_variable (id_token, b, get_default_value b))
+                updateState (symtable_insert_variable (id_token, b, get_default_value b, []))
                 --
                 s <- getState; pos <- getPosition
                 type_check pos s check_eq id_token exp_type
                 let var_value = if c == [] then get_default_value b else exp_value
-                updateState (symtable_update_variable (id_token, var_value))
+                updateState (symtable_update_variable (id_token, var_value, []))
                 --
                 return (a:b:c))
 
@@ -129,7 +135,7 @@ term = (do (_type, value, a) <- literal; return (_type, value, [a]))
       <|> (do
         (Id a_name) <- idToken
         s <- getState
-        let (_, a_type, a_value) = lookup_var a_name s
+        let (_, a_type, a_value, _) = lookup_var a_name s
         return (a_type, a_value, [(Id a_name)]))
 
 function_call :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
@@ -381,7 +387,7 @@ for_declaration = do
               c <- colonToken
               d <- types
               s <- getState
-              updateState (symtable_insert_variable (b, d, get_default_value d))
+              updateState (symtable_insert_variable (b, d, get_default_value d, []))
               liftIO (putStrLn "for_declaration:")
               print_state
               return (d, (b:c:[d]))
@@ -462,7 +468,7 @@ form_blocks_start id_token = (do
                 --
                 s <- getState; pos <- getPosition
                 let (Id id_token_name) = id_token
-                let (_, id_token_type, _) = lookup_var id_token_name s
+                let (_, id_token_type, _, _) = lookup_var id_token_name s
                 type_check pos s check_eq id_token_type a_type
                 --
                 (b_type, b) <- form_block id_token
@@ -497,18 +503,25 @@ fun_decl = do
         b <- idToken
         c <- openParenthesesToken
         --
+        updateState (symtable_insert_variable (b, Unit, UnitLiteral (), []))
+        --
         updateState (add_current_scope_name "fun")
         --
         (d_types, _, d) <- (do a <- params; return a) <|> (return ([], [], []))
         e <- closeParenthesesToken
         f <- colonToken
         g <- types
+        --
+        updateState (symtable_update_variable_type (b, g)) -- TODO: symtable_update_variable_type
+        --
         (h_type, h) <- block
         --
         s <- getState; pos <- getPosition
         type_check_with_msg "In function return: " pos s check_eq h_type g
         --
         updateState (remove_current_scope_name)
+        --
+        updateState (symtable_update_variable (b, h))
         --
         return ([a, b, c] ++ d ++ [e, f, g] ++ h)
 
@@ -518,11 +531,11 @@ params = do
         c <- colonToken
         d <- types
         --
-        updateState (symtable_insert_variable (b, d, get_default_value d))
+        updateState (symtable_insert_variable (b, d, get_default_value d, []))
         --
         (e_type, e_value, e) <- atrib_opt d
         let var_value = if e == [] then get_default_value d else e_value
-        updateState (symtable_update_variable (b, var_value))
+        updateState (symtable_update_variable (b, var_value, []))
         liftIO (putStrLn "params_declaration:")
         print_state
         --
