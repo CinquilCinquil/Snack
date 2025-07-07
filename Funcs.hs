@@ -96,7 +96,7 @@ lookup_var' var_name vars scope_name =
   case search_scope_tree scope_name vars of
     NoChildren -> var_error
     (Node node_name node_vars _) ->
-      case get_var_info_from_scope node_name var_name node_vars of
+      case get_var_info_from_scope var_name node_vars of
         (_, _, ErrorToken, _) -> lookup_var' var_name vars (reverse $ tail $ reverse scope_name) -- search in current scope failed, go one up
         var -> var -- search successful
 
@@ -109,17 +109,21 @@ search_scope_tree (scope_namex:scope_namexs) (Node name vars children) =
     if scope_namexs == [] then (Node name vars children) else search_scope_tree scope_namexs children -- search is successful
     else NoChildren -- not found
 
--- OBS: scope_name here is not a list like in MyState, its the name of a single strucure, like 'if' or a function name
-get_var_info_from_scope :: Name -> Name -> [Var] -> Var
-get_var_info_from_scope scope_name var_name [] = var_error
-get_var_info_from_scope scope_name var_name (varx:varxs) = let (namex, typex, valuex, funcbx) = varx in
-  if var_name == namex then (namex, typex, valuex, funcbx) else get_var_info_from_scope scope_name var_name varxs
+get_var_info_from_scope :: Name -> [Var] -> Var
+get_var_info_from_scope var_name [] = var_error
+get_var_info_from_scope var_name (varx:varxs) = let (namex, typex, valuex, funcbx) = varx in
+  if var_name == namex then (namex, typex, valuex, funcbx) else get_var_info_from_scope var_name varxs
 
 get_current_scope_name :: MyState -> ScopeName
 get_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = scope_name
 
 get_current_scope :: MyState -> Variables
 get_current_scope [(vars, sk, ts, sp, pc, scope_name)] = vars
+
+check_var_is_declared :: Name -> MyState -> ParsecT [InfoAndToken] MyState IO ()
+check_var_is_declared var_name s = do
+  let x = lookup_var var_name s -- WARNING: might be ignored due to lazy-eval
+  return ()
 
 ----------------- Update -------------------
 
@@ -166,6 +170,34 @@ symtable_update_variable_type :: (Token, MyType) -> MyState -> MyState
 symtable_update_variable_type (Id var_name, _type) [(vars, sk, ts, sp, pc, scope_name)] = do
   [(symtable_update_variable' scope_name (var_name, _type, NoneToken, [NoneToken]) vars, sk, ts, sp, pc, scope_name)]
 
+update_struct :: [Token] -> (MyType, Value) -> MyState -> MyState
+update_struct [] _ _ = error_msg "dame" []
+update_struct (father_struct:access_chain) (var_type, var_value) s = do
+  let (Id father_struct_name) = father_struct
+  let filtered_access_chain = filter (\x -> x /= Period) access_chain
+  --
+  let (_, _, StructLiteral attrbs, _) = lookup_var father_struct_name s
+  let (target_name, StructLiteral target_attrbs) = struct_chain_traversal attrbs filtered_access_chain
+  --
+  let new_var_value = (target_name, NoneToken, var_value, [NoneToken])
+  symtable_update_variable (Id father_struct_name, StructLiteral (update_in_variables new_var_value target_attrbs), [NoneToken]) s
+
+struct_chain_traversal :: [Var] -> [Token] -> (Name, Token)
+struct_chain_traversal _ [] = error_msg "dame1" []
+struct_chain_traversal [] _ = error_msg "dame2" []
+struct_chain_traversal attrbs [(Id t_name)] = 
+  if var_is_attrb_of_struct attrbs t_name then (t_name, StructLiteral attrbs) else error_msg "dame3" []
+struct_chain_traversal attrbs ((Id t_name):ts) =
+  if var_is_attrb_of_struct attrbs t_name then do
+    case head attrbs of
+      (varx_name, _, StructLiteral attrbs', _) -> struct_chain_traversal attrbs' ts
+      (varx_name, _, _, _) -> error_msg "Variable '%' is not struct" [varx_name]
+  else error_msg "dame4" []
+
+var_is_attrb_of_struct :: [Var] -> Name -> Bool
+var_is_attrb_of_struct [] _ = False
+var_is_attrb_of_struct ((varx_name, _, _, _):varxs) name = if varx_name == name then True else var_is_attrb_of_struct varxs name
+
 ----------------- Remove -------------------
 
 remove_current_scope_name :: MyState -> MyState
@@ -186,6 +218,19 @@ symtable_remove_scope (scope_namex:scope_namexs) (Node name vars children) =
 
 get_value_from_exp :: [Token] -> MyState -> Token
 get_value_from_exp expression [(vars, sk, ts, sp, pc, sn)] = IntLiteral 0
+
+get_default_value :: MyState -> Token -> Token
+get_default_value _ Nat = NatLiteral 0
+get_default_value _ Int = IntLiteral 0
+get_default_value _ String = StringLiteral ""
+get_default_value _ TChar = CharLiteral '\a'
+get_default_value _ Float = FloatLiteral 0.0
+get_default_value _ TBool = BoolLiteral False
+get_default_value _ Unit = UnitLiteral ()
+get_default_value s (Id name) = do
+  let (_, _, attrbs, _) = lookup_var name s
+  attrbs
+--get_default_value s (Type _) = ...
 
 -- wrapper for type_check'
 -- pos -> State -> type checking function -> type or identifier token -> type or identifier token -> ...
@@ -233,17 +278,6 @@ isIntegral :: MyType -> Bool
 isIntegral Nat = True
 isIntegral Int = True
 isIntegral _ = False
-
-get_default_value :: Token -> Token
-get_default_value Nat = NatLiteral 0
-get_default_value Int = IntLiteral 0
-get_default_value String = StringLiteral ""
-get_default_value TChar = CharLiteral '\a'
-get_default_value Float = FloatLiteral 0.0
-get_default_value TBool = BoolLiteral False
-get_default_value Unit = UnitLiteral ()
-get_default_value (Id _) = StructLiteral []
---get_default_value (Type _) = ...
 
 doOpOnTokens :: Token -> Token -> Token -> Token
 doOpOnTokens (NatLiteral x) (NatLiteral y) op

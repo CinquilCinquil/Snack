@@ -40,10 +40,12 @@ declaration = (do
               c <- colonToken
               d <- types
               e <- semiColonToken
+              --
               s <- getState
-              updateState (symtable_insert_variable (b, d, get_default_value d, []))
+              updateState (symtable_insert_variable (b, d, get_default_value s d, []))
               liftIO (putStrLn "declaration:")
               print_state
+              --
               return (b:c:d:[e]))
               <|>
               (do
@@ -60,13 +62,16 @@ declaration = (do
 
 ----------------- Main -----------------
 
-decl_or_atrib :: ParsecT [InfoAndToken] MyState IO ([Token])
-decl_or_atrib = do
-                a <- idToken
+decl_or_atrib_or_access :: ParsecT [InfoAndToken] MyState IO ([Token])
+decl_or_atrib_or_access = do
+                          a <- idToken
+                          b <- decl_or_atrib a <|> struct_attrib a
+                          return (a:b)
+
+decl_or_atrib :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
+decl_or_atrib a = do
                 b <- init_or_decl a
                 c <- semiColonToken
-                liftIO (putStrLn "decl_or_atrib:")
-                print_state
                 return ((a:b) ++ [c])
 
 init_or_decl :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
@@ -85,12 +90,14 @@ init_or_decl id_token = (do -- Assignment
                 b <- types
                 (exp_type, exp_value, c) <- atrib_opt b
                 --
-                updateState (symtable_insert_variable (id_token, b, get_default_value b, []))
+                s <- getState
+                updateState (symtable_insert_variable (id_token, b, get_default_value s b, []))
                 --
-                s <- getState; pos <- getPosition
-                type_check pos s check_eq id_token exp_type
-                let var_value = if c == [] then get_default_value b else exp_value
+                s' <- getState; pos <- getPosition
+                type_check pos s' check_eq id_token exp_type
+                let var_value = if c == [] then get_default_value s' b else exp_value
                 updateState (symtable_update_variable (id_token, var_value, dontChangeFunctionBody))
+                print_state
                 --
                 return (a:b:c))
 
@@ -99,6 +106,24 @@ atrib_opt _type = (do
             a <- assignToken
             (exp_type, exp_value, b) <- exp_rule
             return (exp_type, exp_value, a:b)) <|> (return (_type, defaultValue, []))
+
+struct_attrib :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
+struct_attrib a = do
+                s <- getState
+                let (Id name) = a
+                let vars = case lookup_var name s of 
+                            (_, _, StructLiteral vars, _) -> vars
+                            _ -> error_msg "dame5" []
+                --
+                (_, _, b_struct_tree) <- struct_access' a vars
+                --
+                c <- assignToken
+                (d_type, d_value, d) <- exp_rule
+                e <- semiColonToken
+                --
+                updateState (update_struct b_struct_tree (d_type, d_value))
+                --
+                return (b_struct_tree ++ [c] ++ d ++ [e])
 
 stmts :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 stmts = do
@@ -118,7 +143,7 @@ stmts_op = (do a <- stmts; return a) <|> (return (Unit, []))
 
 -- (return_type, tokens)
 stmt :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
-stmt = (do a <- decl_or_atrib; return (Unit, a))
+stmt = (do a <- decl_or_atrib_or_access; return (Unit, a))
    <|> (do a <- fun_decl; return (Unit, a))
    <|> (do a <- struct_decl; return (Unit, a))
    <|> (do a <- structures; return a)
@@ -151,19 +176,44 @@ exp_base :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 exp_base = (do a <- uminus_remaining; return a)
            <|>
            (do a <- function_call; return a)
-           <|>(do
+           <|> (do
            a <- openParenthesesToken
            (b_type, b_value, b) <- exp_rule
            c <- closeParenthesesToken
            return (b_type, b_value, [a] ++ b ++ [c]))
 
+struct_access :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+struct_access = do
+                (Id name) <- idToken
+                --
+                s <- getState
+                let vars = case lookup_var name s of 
+                              (_, _, StructLiteral vars, _) -> vars
+                              _ -> error_msg "dame5" []
+                b <- struct_access' (Id name) vars
+                return b
+
+struct_access' :: Token -> [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+struct_access' a vars = (do
+                b <- periodToken
+                (c_type, c_value, c) <- struct_access
+                --
+                let (attrb_type, attrb_value) = case c of
+                                                  [(Id last_in_chain)] -> do 
+                                                    let (_, attrb_type, attrb_value, _) = get_var_info_from_scope last_in_chain vars
+                                                    (attrb_type, attrb_value)
+                                                  _ -> (c_type, c_value)
+                --
+                return (attrb_type, attrb_value, a:b:c))
+                <|> (do
+                  s <- getState
+                  let (Id name) = a
+                  let (_, a_type, a_value, _) = lookup_var name s
+                  return (a_type, a_value, [a]))
+
 term :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 term = (do (_type, value, a) <- literal; return (_type, value, [a]))
-      <|> (do
-        (Id a_name) <- idToken
-        s <- getState
-        let (_, a_type, a_value, _) = lookup_var a_name s
-        return (a_type, a_value, [(Id a_name)]))
+      <|> (do a <- struct_access; return a)
 
 function_call :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 function_call = fail "samba"
@@ -416,7 +466,7 @@ for_declaration = do
               c <- colonToken
               d <- types
               s <- getState
-              updateState (symtable_insert_variable (b, d, get_default_value d, []))
+              updateState (symtable_insert_variable (b, d, get_default_value s d, []))
               liftIO (putStrLn "for_declaration:")
               print_state
               return (d, (b:c:[d]))
@@ -560,10 +610,13 @@ params = do
         c <- colonToken
         d <- types
         --
-        updateState (symtable_insert_variable (b, d, get_default_value d, []))
+        s <- getState
+        updateState (symtable_insert_variable (b, d, get_default_value s d, []))
         --
         (e_type, e_value, e) <- atrib_opt d
-        let var_value = if e == [] then get_default_value d else e_value
+        --
+        s' <- getState
+        let var_value = if e == [] then get_default_value s' d else e_value
         updateState (symtable_update_variable (b, var_value, dontChangeFunctionBody))
         liftIO (putStrLn "params_declaration:")
         print_state
@@ -633,7 +686,7 @@ types =
   <|> (do
     (Id name) <- idToken
     s <- getState
-    let x = lookup_var name s -- WARNING: might be skiped bc of lazy-eval
+    check_var_is_declared name s
     return (Id name))
   <|> fail "Not a valid type"
 
