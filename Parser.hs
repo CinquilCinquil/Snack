@@ -51,6 +51,12 @@ declaration = (do
               liftIO (putStrLn "fun_declaration:")
               print_state
               return a)
+              <|>
+              (do
+              a <- struct_decl
+              liftIO (putStrLn "struct_declaration:")
+              print_state
+              return a)
 
 ----------------- Main -----------------
 
@@ -110,9 +116,11 @@ stmts = do
 stmts_op :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 stmts_op = (do a <- stmts; return a) <|> (return (Unit, []))
 
+-- (return_type, tokens)
 stmt :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 stmt = (do a <- decl_or_atrib; return (Unit, a))
    <|> (do a <- fun_decl; return (Unit, a))
+   <|> (do a <- struct_decl; return (Unit, a))
    <|> (do a <- structures; return a)
    <|> (do
     a <- returnToken
@@ -531,7 +539,7 @@ fun_decl = do
         (d_types, _, d) <- (do a <- params; return a) <|> (return ([], [], []))
         e <- closeParenthesesToken
         f <- colonToken
-        g <- types
+        g <- types -- TODO: add param types to func type
         --
         updateState (symtable_update_variable_type (b, g))
         --
@@ -542,7 +550,7 @@ fun_decl = do
         --
         updateState (remove_current_scope_name)
         --
-        updateState (symtable_update_variable (b, dontChangeType, h))
+        updateState (symtable_update_variable (b, dontChangeValue, h))
         --
         return ([a, b, c] ++ d ++ [e, f, g] ++ h)
 
@@ -569,6 +577,34 @@ params_op = (do
             (b_types, b_values, b) <- params
             return (b_types, b_values, (a:b))) <|> (return ([], [], []))
 
+struct_decl :: ParsecT [InfoAndToken] MyState IO [Token]
+struct_decl = do
+            a <- structToken
+            b <- idToken
+            --
+            updateState (symtable_insert_variable (b, Struct, StructLiteral [], []))
+            --
+            updateState (add_current_scope_name "struct")
+            --
+            c <- struct_block
+            --
+            s <- getState
+            let (Node _ struct_vars _) = search_scope_tree (get_current_scope_name s) (get_current_scope s)
+            --
+            updateState (remove_current_scope_name)
+            --
+            updateState (symtable_update_variable (b, StructLiteral struct_vars, dontChangeFunctionBody))
+            --
+            d <- semiColonToken
+            return ((a:b:c) ++ [d])
+
+struct_block :: ParsecT [InfoAndToken] MyState IO [Token]
+struct_block = do
+              a <- openBracketsToken
+              b <- declarations_op
+              c <- closeBracketsToken
+              return ((a:b) ++ [c])
+
 ----------------- Others -----------------
 
 --literals :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
@@ -594,10 +630,15 @@ types =
   <|> (do a <- boolToken; return a)
   <|> (do a <- typeToken; return a)
   <|> (do a <- unitToken; return a)
+  <|> (do
+    (Id name) <- idToken
+    s <- getState
+    let x = lookup_var name s -- WARNING: might be skiped bc of lazy-eval
+    return (Id name))
   <|> fail "Not a valid type"
 
 dontChangeFunctionBody = [NoneToken]
-dontChangeType = NoneToken
+dontChangeValue = NoneToken
 
 ---------------------------------------------------
 ----------------- Parser invocation

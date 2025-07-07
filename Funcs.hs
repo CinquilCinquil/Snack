@@ -115,6 +115,12 @@ get_var_info_from_scope scope_name var_name [] = var_error
 get_var_info_from_scope scope_name var_name (varx:varxs) = let (namex, typex, valuex, funcbx) = varx in
   if var_name == namex then (namex, typex, valuex, funcbx) else get_var_info_from_scope scope_name var_name varxs
 
+get_current_scope_name :: MyState -> ScopeName
+get_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = scope_name
+
+get_current_scope :: MyState -> Variables
+get_current_scope [(vars, sk, ts, sp, pc, scope_name)] = vars
+
 ----------------- Update -------------------
 
 -- wrapper for symtable_update_variable'
@@ -236,6 +242,8 @@ get_default_value TChar = CharLiteral '\a'
 get_default_value Float = FloatLiteral 0.0
 get_default_value TBool = BoolLiteral False
 get_default_value Unit = UnitLiteral ()
+get_default_value (Id _) = StructLiteral []
+--get_default_value (Type _) = ...
 
 doOpOnTokens :: Token -> Token -> Token -> Token
 doOpOnTokens (NatLiteral x) (NatLiteral y) op

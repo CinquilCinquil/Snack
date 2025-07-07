@@ -68,6 +68,7 @@ tokens :-
   float                                 { \p _ -> (getLC p, Float) }
   bool                                  { \p _ -> (getLC p, TBool) }
   unit                                  { \p _ -> (getLC p, Unit) }
+  struct                                { \p s -> (getLC p, Struct) }
   -- Literals
   O	                                    { \p s -> (getLC p, NatLiteral 0) }
   S$D+	                                { \p s -> (getLC p, NatLiteral $ 1 + (read (tail s))) }
@@ -150,6 +151,7 @@ data Token =
   Float |
   TBool |
   Unit |
+  Struct |
   -- Literals
   NatLiteral Int |
   IntLiteral Int |
@@ -158,6 +160,7 @@ data Token =
   FloatLiteral Float |
   BoolLiteral Bool |
   UnitLiteral () |
+  StructLiteral [(String, Token, Token, [Token])] | -- [(Name, Type, Value, FunctionBody)]
   -- Others
   Id String |
   Return |

@@ -85,6 +85,7 @@ charToken = tokenParser TChar
 floatToken = tokenParser Float
 boolToken = tokenParser TBool
 unitToken = tokenParser Unit
+structToken = tokenParser Struct
 
 -- Literals
 
@@ -117,6 +118,12 @@ boolLiteralToken :: ParsecT [InfoAndToken] st IO (Token)
 boolLiteralToken = tokenPrim show update_pos get_token where
   get_token (info, BoolLiteral x) = Just (BoolLiteral x)
   get_token _       = Nothing
+
+-- this would be very cool! like: a : struct := {"x" : 1, "y" : "hello", z : 0.001}
+-- structLiteralToken :: ParsecT [InfoAndToken] st IO (Token)
+-- structLiteralToken = tokenPrim show update_pos get_token where
+--   get_token (info, StructLiteral x) = Just (StructLiteral x)
+--   get_token _       = Nothing
 
 -- Others
 
