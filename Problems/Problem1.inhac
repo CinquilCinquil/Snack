@@ -1,0 +1,6 @@
+main:
+    x, y : float;
+    (x, y) := (4.0, 7.6);
+    c : int := 7;
+
+    spit (x ^ 2 + y + int_to_float(c));
