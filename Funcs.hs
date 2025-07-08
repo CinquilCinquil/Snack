@@ -13,7 +13,7 @@ import System.Environment
 type MyState = [(Variables, Stack, Types, Subprograms, PC, ScopeName, Bool)] -- (..., PC, Scope name, isRunning)
 --
 type Variables = ScopeTree -- (Scope name, Variables)
-type Stack = [(Name, PC)]
+type Stack = [(Name, PC, Value)]
 type Types = [(Name, [Form])]
 type Subprograms = [(Name, MyType, Args, Int)] -- (Name, return _type, arguments, start line)
 type PC = Int
@@ -83,11 +83,18 @@ append_scope (Node name vars children) (scope_namex:scope_namexs) new_scope_name
   else NoChildren
 append_scope _ _ _ = NoChildren
 
+load_params :: [Name] -> [MyType] -> [Value] -> [FunctionBody] -> MyState -> MyState
+load_params [] [] [] [] s = s
+load_params (x:xs) (y:ys) (z:zs) (w:ws) s = symtable_insert_variable (Id x, y, z, w) s
+
 ----------------- Search -----------------
 
 -- wrapper for lookup_var'
-lookup_var :: Name -> MyState -> Var
-lookup_var var_name [(vars, sk, ts, sp, pc, scope_name, flag)] = lookup_var' var_name vars scope_name
+lookup_var :: SourcePos -> Name -> MyState -> Var
+lookup_var pos var_name [(vars, sk, ts, sp, pc, scope_name, flag)] = 
+  case lookup_var' var_name vars scope_name of
+    (_, _, ErrorToken, _) -> error_msg "Variable '%' not declared! Line: % Column: %. Error #0" [var_name, showLine pos, showColumn pos]
+    var -> var
 
 -- searches tree bottom-up
 lookup_var' :: Name -> Variables -> ScopeName -> Var
@@ -123,9 +130,9 @@ get_current_scope [(Node _ vars _, sk, ts, sp, pc, scope_name, flag)] = vars
 get_current_scope_tree :: MyState -> Variables
 get_current_scope_tree [(vars, sk, ts, sp, pc, scope_name, flag)] = vars
 
-check_var_is_declared :: Name -> MyState -> ParsecT [InfoAndToken] MyState IO ()
-check_var_is_declared var_name s = do
-  let x = lookup_var var_name s -- WARNING: might be ignored due to lazy-eval
+check_var_is_declared :: SourcePos -> Name -> MyState -> ParsecT [InfoAndToken] MyState IO ()
+check_var_is_declared pos var_name s = do
+  let x = lookup_var pos var_name s -- WARNING: might be ignored due to lazy-eval
   return ()
 
 ----------------- Update -------------------
@@ -173,13 +180,13 @@ symtable_update_variable_type :: (Token, MyType) -> MyState -> MyState
 symtable_update_variable_type (Id var_name, _type) [(vars, sk, ts, sp, pc, scope_name, flag)] = do
   [(symtable_update_variable' scope_name (var_name, _type, NoneToken, [NoneToken]) vars, sk, ts, sp, pc, scope_name, flag)]
 
-update_struct :: [Token] -> (MyType, Value) -> MyState -> MyState
-update_struct [] _ _ = error_msg "dame" []
-update_struct (father_struct:access_chain) var_info s = do
+update_struct :: SourcePos -> [Token] -> (MyType, Value) -> MyState -> MyState
+update_struct _ [] _ _ = error_msg "dame" []
+update_struct pos (father_struct:access_chain) var_info s = do
   let (Id father_struct_name) = father_struct
   let filtered_access_chain = filter (\x -> x /= Period) access_chain
   --
-  let (_, _, StructLiteral attrbs, _) = lookup_var father_struct_name s
+  let (_, _, StructLiteral attrbs, _) = lookup_var pos father_struct_name s
   let new_struct_literal = struct_chain_traversal_and_update attrbs filtered_access_chain var_info
   --
   symtable_update_variable (Id father_struct_name, new_struct_literal, [NoneToken]) s
@@ -232,21 +239,45 @@ get_flag [(vars, sk, ts, sp, pc, sn, flag)] = flag
 set_flag :: Bool -> MyState -> MyState
 set_flag flag [(vars, sk, ts, sp, pc, sn, old_flag)] = [(vars, sk, ts, sp, pc, sn, flag)]
 
+get_return_value :: MyState -> Value
+get_return_value [(_, stack, _, _, _, _, _)] = 
+  case stack of
+    [] -> error_msg "dame1" []
+    ((_, _, value):xs) -> value
+
+set_return_value :: Value -> MyState -> MyState
+set_return_value value [(vars, stack, ts, sp, pc, sn, flag)] = 
+  case stack of
+    [] -> error_msg "dame1" []
+    ((name, pc, _):xs) -> [(vars, (name, pc, value):xs, ts, sp, pc, sn, flag)]
+
 get_value_from_exp :: [Token] -> MyState -> Token
 get_value_from_exp expression [(vars, sk, ts, sp, pc, sn, flag)] = IntLiteral 0
 
-get_default_value :: MyState -> Token -> Token
-get_default_value _ Nat = NatLiteral 0
-get_default_value _ Int = IntLiteral 0
-get_default_value _ String = StringLiteral ""
-get_default_value _ TChar = CharLiteral '\a'
-get_default_value _ Float = FloatLiteral 0.0
-get_default_value _ TBool = BoolLiteral False
-get_default_value _ Unit = UnitLiteral ()
-get_default_value s (Id name) = do
-  let (_, _, attrbs, _) = lookup_var name s
+get_default_value :: SourcePos -> MyState -> Token -> Token
+get_default_value _ _ Nat = NatLiteral 0
+get_default_value _ _ Int = IntLiteral 0
+get_default_value _ _ String = StringLiteral ""
+get_default_value _ _ TChar = CharLiteral '\a'
+get_default_value _ _ Float = FloatLiteral 0.0
+get_default_value _ _ TBool = BoolLiteral False
+get_default_value _ _ Unit = UnitLiteral ()
+get_default_value pos s (Id name) = do
+  let (_, _, attrbs, _) = lookup_var pos name s
   attrbs
---get_default_value s (Type _) = ...
+--get_default_value pos s (Type _) = ...
+
+-- gets function code and returns: params, param types, function body
+get_params :: [Token] -> ([Name], [Token], [Token])
+get_params [] = ([], [], [])
+get_params (EndOfParamsToken:xs) = ([], [], xs)
+get_params (id:Colon:the_type:xs) = do
+  let id_name = case id of
+                  (Id name) -> name
+                  x -> error_msg "Invalid Param '%' ! Error #1" [show x]
+  let (params, param_types, func_body) = get_params xs
+  (id_name:params, the_type:param_types, func_body)
+get_params _ = error_msg "Invalid params in function call! Error #2" []
 
 -- wrapper for type_check'
 -- pos -> State -> type checking function -> type or identifier token -> type or identifier token -> ...
@@ -261,9 +292,8 @@ type_check' :: String -> SourcePos -> MyState -> (String -> SourcePos -> MyType 
 -- TODO: _type (Id var_name) case 
 -- TODO: (Id var_name) (Id var_name) case 
 type_check' extra_msg pos state check (Id var_name) _type = do
-  case lookup_var var_name state of
-    (_, _, ErrorToken, _) -> error_msg "Variable '%' not declared! Line: % Column: %" [var_name, showLine pos, showColumn pos]
-    (_, var_type, _, _) -> if check extra_msg pos var_type _type then return () else error ""
+    let (_, var_type, _, _) = lookup_var pos var_name state
+    if check extra_msg pos var_type _type then return () else error ""
 type_check' extra_msg pos state check type1 type2 = if check extra_msg pos type1 type2 then return () else error ""
 
 check_eq :: String -> SourcePos -> MyType -> MyType -> Bool
@@ -379,7 +409,9 @@ showLiteral (BoolLiteral x) = show x
 showLiteral (StringLiteral x) = show x
 showLiteral (CharLiteral x) = show x
 showLiteral (UnitLiteral x) = show x
+showLiteral NoneToken = "No Value"
 showLiteral x = show x
+
 
 ----------------- Others -----------------
 
@@ -399,6 +431,14 @@ replace _ _ [] = []
 replace c (x:xs) (msgx:msgxs) = if c == msgx then (x ++ (replace c xs msgxs))
                                 else (msgx:replace c (x:xs) msgxs)
 
-
 showLine = show . sourceLine
 showColumn = show . sourceColumn
+
+check_types :: (Token -> Token -> ParsecT [InfoAndToken] MyState IO ()) -> [Token] -> [Token] -> ParsecT [InfoAndToken] MyState IO ()
+check_types _ [] [] = return ()
+check_types f (x:xs) (y:ys) = do
+  f x y
+  check_types f xs ys
+
+to_infoAndToken :: [Token] -> [InfoAndToken]
+to_infoAndToken xs = map (\s -> ((0, 0), s)) xs

@@ -1,0 +1,9 @@
+types:
+decls:
+main:
+    if (true) {
+        spit "aa";
+    }
+    else {
+        spit "bb";
+    }

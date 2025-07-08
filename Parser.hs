@@ -24,6 +24,11 @@ program = do
             liftIO (putStrLn "Parsing Complete: ")
             return $ b:[c] ++ d ++ [e] ++ f
 
+parse_func :: ParsecT [InfoAndToken] MyState IO ([Token])
+parse_func = do
+            (h_type, h) <- block
+            return h
+
 ----------------- Declarations Functions and Globals -----------------
 
 declarations_op :: ParsecT [InfoAndToken] MyState IO ([Token])
@@ -42,8 +47,8 @@ declaration = (do
               d <- types
               e <- semiColonToken
               --
-              s <- getState
-              updateState (symtable_insert_variable (b, d, get_default_value s d, []))
+              s <- getState; pos <- getPosition
+              updateState (symtable_insert_variable (b, d, get_default_value pos s d, []))
               liftIO (putStrLn "declaration:")
               print_state
               --
@@ -63,11 +68,11 @@ declaration = (do
 
 ----------------- Main -----------------
 
-decl_or_atrib_or_access :: ParsecT [InfoAndToken] MyState IO ([Token])
-decl_or_atrib_or_access = do
+decl_or_atrib_or_access_or_call :: ParsecT [InfoAndToken] MyState IO ([Token])
+decl_or_atrib_or_access_or_call = do
                           a <- idToken
-                          b <- decl_or_atrib a <|> struct_attrib a
-                          return (a:b)
+                          b <- decl_or_atrib a <|> struct_attrib a <|> (do (_, _, b) <- function_call a; return b)
+                          return b
 
 decl_or_atrib :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
 decl_or_atrib a = do
@@ -78,7 +83,7 @@ decl_or_atrib a = do
 init_or_decl :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
 init_or_decl id_token = (do -- Assignment
                 a <- assignToken
-                (exp_type, exp_value, b) <- exp_rule
+                (exp_type, exp_value, _, b) <- exp_rule
                 --
                 s <- getState; pos <- getPosition
                 type_check pos s check_eq id_token exp_type
@@ -91,12 +96,12 @@ init_or_decl id_token = (do -- Assignment
                 b <- types
                 (exp_type, exp_value, c) <- atrib_opt b
                 --
-                s <- getState
-                updateState (symtable_insert_variable (id_token, b, get_default_value s b, []))
+                s <- getState; pos <- getPosition
+                updateState (symtable_insert_variable (id_token, b, get_default_value pos s b, []))
                 --
-                s' <- getState; pos <- getPosition
-                type_check pos s' check_eq id_token exp_type
-                let var_value = if c == [] then get_default_value s' b else exp_value
+                s' <- getState; pos' <- getPosition
+                type_check pos' s' check_eq id_token exp_type
+                let var_value = if c == [] then get_default_value pos' s' b else exp_value
                 updateState (symtable_update_variable (id_token, var_value, dontChangeFunctionBody))
                 print_state
                 --
@@ -105,24 +110,25 @@ init_or_decl id_token = (do -- Assignment
 atrib_opt :: MyType -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 atrib_opt _type = (do
             a <- assignToken
-            (exp_type, exp_value, b) <- exp_rule
+            (exp_type, exp_value, _, b) <- exp_rule
             return (exp_type, exp_value, a:b)) <|> (return (_type, defaultValue, []))
 
 struct_attrib :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
 struct_attrib a = do
-                s <- getState
+                s <- getState; pos <- getPosition
                 let (Id name) = a
-                let vars = case lookup_var name s of 
+                let vars = case lookup_var pos name s of 
                             (_, _, StructLiteral vars, _) -> vars
                             _ -> error_msg "dame5" []
                 --
-                (_, _, b_struct_tree) <- struct_access' a vars
+                (_, _, _, b_struct_tree) <- struct_access' a vars
                 --
                 c <- assignToken
-                (d_type, d_value, d) <- exp_rule
+                (d_type, d_value, _, d) <- exp_rule
                 e <- semiColonToken
                 --
-                updateState (update_struct b_struct_tree (d_type, d_value))
+                pos' <- getPosition
+                updateState (update_struct pos' b_struct_tree (d_type, d_value))
                 print_state
                 --
                 return (b_struct_tree ++ [c] ++ d ++ [e])
@@ -145,47 +151,54 @@ stmts_op = (do a <- stmts; return a) <|> (return (Unit, []))
 
 -- (return_type, tokens)
 stmt :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
-stmt = (do a <- decl_or_atrib_or_access; return (Unit, a))
-   <|> (do a <- fun_decl; return (Unit, a))
+stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
    <|> (do a <- struct_decl; return (Unit, a))
    <|> (do a <- structures; return a)
    <|> (do
     a <- returnToken
-    (b_type, _, b) <- exp_rule
-    -- TODO: when semantic -> return value to function call
+    (b_type, b_value, _, b) <- exp_rule
     c <- semiColonToken
+    --
+    updateState (set_return_value b_value)
+    --
     return (b_type, (a:b) ++ [c]))
    <|> (do
-    s <- getState
     a <- printToken
-    (_, b_value, b) <- exp_rule
+    (_, b_value, _, b) <- exp_rule
     c <- semiColonToken
+    --
+    s <- getState
     when (get_flag s) $ liftIO (putStrLn $ showLiteral b_value)
+    --
     return (Unit, (a:b) ++ [c])
    )
 
-exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 exp_rule = (do
-           a <- term
-           b <- relational_remaining_recursive a
-           return b)
+           (a_type, a_value, a_body, a) <- term
+           (b_type, b_value, b) <- relational_remaining_recursive (a_type, a_value, a)
+           if a == b then return (a_type, a_value, a_body, a) else return (b_type, b_value, noFuncBody, b))
            <|>
            (do
-           a <- exp_base
-           (b_type, b_value, b) <- relational_remaining a
-           if b == [] then return a else return (b_type, b_value, b))
+           (a_type, a_value, a_body, a) <- exp_base
+           (b_type, b_value, b) <- relational_remaining (a_type, a_value, a)
+           if b == [] then return (a_type, a_value, a_body, a) else return (b_type, b_value, noFuncBody, b))
 
-exp_base :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
-exp_base = (do a <- uminus_remaining; return a)
-           <|>
-           (do a <- function_call; return a)
+exp_base :: ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+exp_base = (do (a_type, a_value, a) <- uminus_remaining; return (a_type, a_value, noFuncBody, a))
            <|> (do
            a <- openParenthesesToken
-           (b_type, b_value, b) <- exp_rule
+           (b_type, b_value, b_body, b) <- exp_rule
            c <- closeParenthesesToken
-           return (b_type, b_value, [a] ++ b ++ [c]))
+           return (b_type, b_value, b_body, [a] ++ b ++ [c]))
 
-struct_access :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+struct_access_or_function_call :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+struct_access_or_function_call vars = do
+      a <- idToken
+      b <- struct_access' a vars <|> (do (b_type, b_value, b) <- function_call a; return (b_type, b_value, noFuncBody, b))
+      return b
+
+struct_access :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access vars = do
                 (Id name) <- idToken
                 --
@@ -196,30 +209,71 @@ struct_access vars = do
                 b <- struct_access' (Id name) vars'
                 return b
 
-struct_access' :: Token -> [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+struct_access' :: Token -> [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access' a vars = (do
-                b <- periodToken
-                (c_type, c_value, c) <- struct_access vars
-                --
-                let (attrb_type, attrb_value) = case c of
-                                                  [(Id last_in_chain)] -> do 
-                                                    let (_, attrb_type, attrb_value, _) = get_var_info_from_scope last_in_chain vars
-                                                    (attrb_type, attrb_value)
-                                                  _ -> (c_type, c_value)
-                --
-                return (attrb_type, attrb_value, a:b:c))
-                <|> (do
-                  s <- getState
-                  let (Id name) = a
-                  let (_, a_type, a_value, _) = lookup_var name s
-                  return (a_type, a_value, [a]))
+      b <- periodToken
+      (c_type, c_value, c_body, c) <- struct_access vars
+      --
+      let (attrb_type, attrb_value, attrb_body) = case c of
+                                        [(Id last_in_chain)] -> do 
+                                          let (_, attrb_type, attrb_value, attrb_body) = get_var_info_from_scope last_in_chain vars
+                                          (attrb_type, attrb_value, attrb_body)
+                                        _ -> (c_type, c_value, c_body)
+      --
+      return (attrb_type, attrb_value, attrb_body, a:b:c))
+      <|> (do
+      s <- getState; pos <- getPosition
+      let (Id name) = a
+      let (_, a_type, a_value, a_body) = lookup_var pos name s
+      return (a_type, a_value, a_body, [a]))
 
-term :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
-term = (do (_type, value, a) <- literal; return (_type, value, [a]))
-      <|> (do s <- getState; a <- struct_access (get_current_scope s); return a)
+term :: ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+term = (do (_type, value, a) <- literal; return (_type, value, noFuncBody, [a]))
+      <|> (do s <- getState; a <- struct_access_or_function_call (get_current_scope s); return a)
 
-function_call :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
-function_call = fail "samba"
+function_call :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+function_call a = do
+  b <- openParenthesesToken
+  -- Type checking
+  s <- getState
+  pos <- getPosition
+  let (Id func_name) = a
+  let (_, func_type, _, func_code) = lookup_var pos func_name s
+  let (func_params, func_params_types, func_body) = get_params func_code
+  (c_types, c_values, c_bodies, c) <- args_rule_opt
+  check_types (type_check pos s check_eq) c_types func_params_types
+  -- Semantics
+  let is_executing = get_flag s
+  when is_executing $ do
+        updateState (add_current_scope_name "fun")
+        updateState (load_params func_params func_params_types c_values c_bodies)
+        --
+        s' <- getState
+        x <- parse_function func_name func_body s'
+        --
+        updateState (remove_current_scope_name)
+  --
+  s' <- getState
+  let result_value = if is_executing then get_return_value s' else NoneToken
+  -- when is_executing $ desempilhar
+  --
+  d <- closeParenthesesToken
+  e <- semiColonToken
+  return (func_type, result_value, (a:b:c) ++ [d, e])
+
+args_rule_opt :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [FunctionBody], [Token])
+args_rule_opt = (do
+                (exp_type, exp_value, exp_body, a) <- exp_rule
+                (b_types, b_values, b_bodies, b) <- args_rule
+                return (exp_type:b_types, exp_value:b_values, exp_body:b_bodies, a ++ b))
+                <|> return ([], [], [], [])
+
+args_rule :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [FunctionBody], [Token])
+args_rule = (do
+            a <- commaToken
+            (b_types, b_values, b_bodies, b) <- args_rule_opt
+            return (b_types, b_values, b_bodies, a:b))
+            <|> return ([], [], [], [])
 
 relational_remaining_recursive :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 relational_remaining_recursive a = (do
@@ -232,8 +286,8 @@ relational_remaining_recursive a = (do
 
 relational_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 relational_rule = do
-                  a <- term <|> exp_base
-                  b <- relational_remaining a
+                  (a_type, a_value, a_body, a) <- term <|> exp_base
+                  b <- relational_remaining (a_type, a_value, a)
                   return b
 
 relational_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
@@ -243,15 +297,15 @@ relational_remaining (a_type, a_value, a) = (do
               --
               s <- getState; pos <- getPosition
               type_check pos s check_eq a_type c_type
-              let result_value = doOpOnTokens a_value c_value b
+              let result_value = if (get_flag s) then doOpOnTokens a_value c_value b else NoneToken
               --
               return (TBool, result_value, a ++ [b] ++ c))
               <|> (do x <- or_remaining (a_type, a_value, a); return x)
 
 or_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 or_rule = do
-          a <- term <|> exp_base
-          b <- or_remaining a
+          (a_type, a_value, a_body, a) <- term <|> exp_base
+          b <- or_remaining (a_type, a_value, a)
           return b
 
 or_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
@@ -261,15 +315,15 @@ or_remaining (a_type, a_value, a) = (do
               --
               s <- getState; pos <- getPosition
               type_check pos s check_bool a_type c_type
-              let result_value = doOpOnTokens a_value c_value b
+              let result_value = if (get_flag s) then doOpOnTokens a_value c_value b else NoneToken
               --
               return (TBool, result_value, a ++ [b] ++ c))
               <|> (do x <- and_remaining (a_type, a_value, a); return x)
 
 and_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 and_rule = do
-          a <- term <|> exp_base
-          b <- and_remaining a
+          (a_type, a_value, a_body, a) <- term <|> exp_base
+          b <- and_remaining (a_type, a_value, a)
           return b
 
 and_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
@@ -279,15 +333,15 @@ and_remaining (a_type, a_value, a) = (do
               --
               s <- getState; pos <- getPosition
               type_check pos s check_bool a_type c_type
-              let result_value = doOpOnTokens a_value c_value b
+              let result_value = if (get_flag s) then doOpOnTokens a_value c_value b else NoneToken
               --
               return (TBool, result_value, a ++ [b] ++ c))
               <|> (do x <- arithm_remaining (a_type, a_value, a); return x)
 
 arithm_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 arithm_rule = do
-            a <- term <|> exp_base
-            b <- arithm_remaining a
+            (a_type, a_value, a_body, a) <- term <|> exp_base
+            b <- arithm_remaining (a_type, a_value, a)
             return b
 
 arithm_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
@@ -297,15 +351,15 @@ arithm_remaining (a_type, a_value, a) = (do
               --
               s <- getState; pos <- getPosition
               type_check pos s check_arithm a_type c_type
-              let result_value = doOpOnTokens a_value c_value b
+              let result_value = if (get_flag s) then doOpOnTokens a_value c_value b else NoneToken
               --
               return (c_type, result_value, a ++ [b] ++ c))
             <|> (do x <- mult_remaining (a_type, a_value, a); return x)
 
 mult_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 mult_rule = do
-            a <- term <|> exp_base
-            b <- mult_remaining a
+            (a_type, a_value, a_body, a) <- term <|> exp_base
+            b <- mult_remaining (a_type, a_value, a)
             return b
 
 mult_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
@@ -315,15 +369,15 @@ mult_remaining (a_type, a_value, a) = (do
               --
               s <- getState; pos <- getPosition
               type_check pos s check_arithm a_type c_type
-              let result_value = doOpOnTokens a_value c_value b
+              let result_value = if (get_flag s) then doOpOnTokens a_value c_value b else NoneToken
               --
               return (c_type, result_value, a ++ [b] ++ c))
             <|> (do x <- pow_remaining (a_type, a_value, a); return x)
 
 pow_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 pow_rule = do
-            a <- term <|> exp_base
-            b <- pow_remaining a
+            (a_type, a_value, a_body, a) <- term <|> exp_base
+            b <- pow_remaining (a_type, a_value, a)
             return b
 
 pow_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
@@ -333,7 +387,7 @@ pow_remaining (a_type, a_value, a) = (do
               --
               s <- getState; pos <- getPosition
               type_check pos s check_arithm a_type c_type
-              let result_value = doOpOnTokens a_value c_value b
+              let result_value = if (get_flag s) then doOpOnTokens a_value c_value b else NoneToken
               --
               return (c_type, result_value, a ++ [b] ++ c))
             <|> return (a_type, a_value, a)
@@ -342,21 +396,21 @@ pow_remaining (a_type, a_value, a) = (do
 uminus_remaining :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 uminus_remaining = (do
             a <- minusToken
-            (b_type, b_value, b) <- term <|> exp_base
+            (b_type, b_value, _, b) <- term <|> exp_base
             --
             s <- getState; pos <- getPosition
             type_check pos s check_arithm b_type b_type
-            let result_value = doOpOnToken b_value a
+            let result_value = if (get_flag s) then doOpOnToken b_value a else NoneToken
             --
             return (b_type, result_value, a:b))
             <|>
             (do 
             a <- notToken
-            (b_type, b_value, b) <- term <|> exp_base
+            (b_type, b_value, _, b) <- term <|> exp_base
             --
             s <- getState; pos <- getPosition
             type_check pos s check_bool b_type TBool
-            let result_value = doOpOnToken b_value a
+            let result_value = if (get_flag s) then doOpOnToken b_value a else NoneToken
             --
             return (TBool, result_value, a:b))
 
@@ -391,7 +445,7 @@ block = do
 if_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 if_rule = do
         a <- ifToken
-        (b_type, b_value, b) <- exp_rule
+        (b_type, b_value, _, b) <- exp_rule
         --
         s <- getState; pos <- getPosition
         type_check pos s check_eq b_type TBool
@@ -399,12 +453,13 @@ if_rule = do
         updateState (add_current_scope_name "if")
         --
         s' <- getState;
-        if (get_flag s') then updateState (set_flag b_value) else updateState (set_flag False)
+        let (BoolLiteral boolean_value) = b_value
+        if (get_flag s') then updateState (set_flag boolean_value) else updateState (set_flag False)
         (c_type, c) <- block
         --
         updateState (remove_current_scope_name)
         --
-        if (get_flag s') then updateState (set_flag (not b_value)) else updateState (set_flag False)
+        if (get_flag s') then updateState (set_flag (not boolean_value)) else updateState (set_flag False)
         (d_type, d) <- else_op
         --
         s <- getState; pos <- getPosition
@@ -444,9 +499,9 @@ for_rule = do
 range_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 range_rule = (do -- Range with brackets
           a <- openSquareBracketsToken
-          (b_type, b_value, b) <- exp_rule
+          (b_type, b_value, _, b) <- exp_rule
           c <- twoDotsToken
-          (d_type, d_value, d) <- exp_rule
+          (d_type, d_value, _, d) <- exp_rule
           e <- closeSquareBracketsToken
           --
           s <- getState; pos <- getPosition
@@ -456,9 +511,9 @@ range_rule = (do -- Range with brackets
           <|> -- Range with parantheses
           (do
           a <- openParenthesesToken
-          (b_type, b_value, b) <- exp_rule
+          (b_type, b_value, _, b) <- exp_rule
           c <- twoDotsToken
-          (d_type, d_value, d) <- exp_rule
+          (d_type, d_value, _, d) <- exp_rule
           e <- closeParenthesesToken
           --
           s <- getState; pos <- getPosition
@@ -471,8 +526,10 @@ for_declaration = do
               b <- idToken
               c <- colonToken
               d <- types
-              s <- getState
-              updateState (symtable_insert_variable (b, d, get_default_value s d, []))
+              --
+              s <- getState; pos <- getPosition
+              updateState (symtable_insert_variable (b, d, get_default_value pos s d, []))
+              --
               liftIO (putStrLn "for_declaration:")
               print_state
               return (d, (b:c:[d]))
@@ -482,7 +539,7 @@ while_rule = do
         a <- whileToken
         --
         updateState (add_current_scope_name "while")
-        (b_type, b_value, b) <- exp_rule
+        (b_type, b_value, _, b) <- exp_rule
         --
         s <- getState; pos <- getPosition
         type_check pos s check_eq b_type TBool
@@ -497,7 +554,7 @@ repeat_rule = do
         a <- repeatToken
         --
         updateState (add_current_scope_name "repeat")
-        (b_type, b_value, b) <- exp_rule
+        (b_type, b_value, _, b) <- exp_rule
         --
         s <- getState; pos <- getPosition
         if isIntegral b_type then do
@@ -553,7 +610,7 @@ form_blocks_start id_token = (do
                 --
                 s <- getState; pos <- getPosition
                 let (Id id_token_name) = id_token
-                let (_, id_token_type, _, _) = lookup_var id_token_name s
+                let (_, id_token_type, _, _) = lookup_var pos id_token_name s
                 type_check pos s check_eq id_token_type a_type
                 --
                 (b_type, b) <- form_block id_token
@@ -591,6 +648,7 @@ fun_decl = do
         updateState (symtable_insert_variable (b, Unit, UnitLiteral (), []))
         --
         updateState (add_current_scope_name "fun")
+        updateState (set_flag False)
         --
         (d_types, _, d) <- (do a <- params; return a) <|> (return ([], [], []))
         e <- closeParenthesesToken
@@ -605,8 +663,9 @@ fun_decl = do
         type_check_with_msg "In function return: " pos s check_eq h_type g
         --
         updateState (remove_current_scope_name)
+        updateState (set_flag True)
         --
-        updateState (symtable_update_variable (b, dontChangeValue, d ++ h))
+        updateState (symtable_update_variable (b, dontChangeValue, d ++ [EndOfParamsToken] ++ h))
         --
         return ([a, b, c] ++ d ++ [e, f, g] ++ h)
 
@@ -616,13 +675,13 @@ params = do
         c <- colonToken
         d <- types
         --
-        s <- getState
-        updateState (symtable_insert_variable (b, d, get_default_value s d, []))
+        s <- getState; pos <- getPosition
+        updateState (symtable_insert_variable (b, d, get_default_value pos s d, []))
         --
         (e_type, e_value, e) <- atrib_opt d
         --
-        s' <- getState
-        let var_value = if e == [] then get_default_value s' d else e_value
+        s' <- getState; pos' <- getPosition
+        let var_value = if e == [] then get_default_value pos' s' d else e_value
         updateState (symtable_update_variable (b, var_value, dontChangeFunctionBody))
         liftIO (putStrLn "params_declaration:")
         print_state
@@ -691,23 +750,31 @@ types =
   <|> (do a <- unitToken; return a)
   <|> (do
     (Id name) <- idToken
-    s <- getState
-    check_var_is_declared name s
+    s <- getState; pos <- getPosition
+    check_var_is_declared pos name s
     return (Id name))
   <|> fail "Not a valid type"
 
 dontChangeFunctionBody = [NoneToken]
+noFuncBody = [NoneToken]
 dontChangeValue = NoneToken
 
 ---------------------------------------------------
 ----------------- Parser invocation
 ---------------------------------------------------
 
-initialState = [(Node "root" [] NoChildren, [], [], [], 0, ["root"])]
+initialState = [(Node "root" [] NoChildren, [], [], [], 0, ["root"], True)]
 defaultValue = StringLiteral "Default Value"
 
-parser :: [InfoAndToken] -> IO (Either ParseError [Token])
-parser tokens = runParserT program initialState "Parsing error!" tokens
+parse_function :: Name -> [Token] -> MyState -> ParsecT [InfoAndToken] MyState IO ()
+parse_function func_name func_body s = do
+  result <- liftIO (runParserT parse_func s (replace '%' [func_name] "Parsing error inside '%' call!") (to_infoAndToken func_body))
+  let tokens = case result of
+                Left err -> error (show err)
+                Right ans -> ans
+  return ()
+
+-- IO (Either ParseError [Token])
 
 main :: IO ()
 main = do
@@ -715,7 +782,7 @@ main = do
   case args of 
     [filename] -> do
       tokensAndInfo <- getTokens filename
-      result <- parser tokensAndInfo
+      result <- runParserT program initialState "Parsing error!" tokensAndInfo
       case result of
       { Left err -> print err;
         Right ans -> print ans
