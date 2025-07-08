@@ -85,7 +85,7 @@ append_scope _ _ _ = NoChildren
 
 load_params :: [Name] -> [MyType] -> [Value] -> [FunctionBody] -> MyState -> MyState
 load_params [] [] [] [] s = s
-load_params (x:xs) (y:ys) (z:zs) (w:ws) s = symtable_insert_variable (Id x, y, z, w) s
+load_params (x:xs) (y:ys) (z:zs) (w:ws) s = load_params xs ys zs ws (symtable_insert_variable (Id x, y, z, w) s)
 
 ----------------- Search -----------------
 
@@ -270,6 +270,7 @@ get_default_value pos s (Id name) = do
 -- gets function code and returns: params, param types, function body
 get_params :: [Token] -> ([Name], [Token], [Token])
 get_params [] = ([], [], [])
+get_params (Comma:xs) = get_params xs
 get_params (EndOfParamsToken:xs) = ([], [], xs)
 get_params (id:Colon:the_type:xs) = do
   let id_name = case id of

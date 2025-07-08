@@ -242,6 +242,7 @@ function_call a = do
   let (func_params, func_params_types, func_body) = get_params func_code
   (c_types, c_values, c_bodies, c) <- args_rule_opt
   check_types (type_check pos s check_eq) c_types func_params_types
+  liftIO (print (func_params, func_params_types, func_body))
   -- Semantics
   let is_executing = get_flag s
   when is_executing $ do
