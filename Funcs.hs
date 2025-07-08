@@ -10,7 +10,7 @@ import System.Environment
 ----------------- Types
 ---------------------------------------------------
 
-type MyState = [(Variables, Stack, Types, Subprograms, PC, ScopeName)] -- (..., PC, Scope name)
+type MyState = [(Variables, Stack, Types, Subprograms, PC, ScopeName, Bool)] -- (..., PC, Scope name, isRunning)
 --
 type Variables = ScopeTree -- (Scope name, Variables)
 type Stack = [(Name, PC)]
@@ -39,7 +39,7 @@ type Args = ()
 
 -- (Identifier token, Type token, value) -> ...
 symtable_insert_variable :: (Token, Token, Value, FunctionBody) -> MyState -> MyState
-symtable_insert_variable var [(vars, sk, ts, sp, pc, scope_name)] = [(append_to_scope scope_name var vars, sk, ts, sp, pc, scope_name)]
+symtable_insert_variable var [(vars, sk, ts, sp, pc, scope_name, flag)] = [(append_to_scope scope_name var vars, sk, ts, sp, pc, scope_name, flag)]
 
 -- Scope name -> (Identifier token, Type token, value) -> Tree node -> ...
 append_to_scope :: ScopeName -> (Token, Token, Value, FunctionBody) -> Variables -> Variables
@@ -67,10 +67,10 @@ makeVar :: (Token, Token, Value, FunctionBody) -> Var
 makeVar (Id name, type_, value, funcb) = (name, type_, value, funcb)
 
 add_current_scope_name :: Name -> MyState -> MyState
-add_current_scope_name name [(vars, sk, ts, sp, pc, scope_name)] =
+add_current_scope_name name [(vars, sk, ts, sp, pc, scope_name, flag)] =
   case append_scope vars scope_name name of
     NoChildren -> error_msg "Failed adding to scope" []
-    new_vars -> [(new_vars, sk, ts, sp, pc, scope_name ++ [name])]
+    new_vars -> [(new_vars, sk, ts, sp, pc, scope_name ++ [name], flag)]
 
 append_scope :: Variables -> ScopeName -> Name -> Variables
 append_scope NoChildren _ _ = NoChildren
@@ -87,7 +87,7 @@ append_scope _ _ _ = NoChildren
 
 -- wrapper for lookup_var'
 lookup_var :: Name -> MyState -> Var
-lookup_var var_name [(vars, sk, ts, sp, pc, scope_name)] = lookup_var' var_name vars scope_name
+lookup_var var_name [(vars, sk, ts, sp, pc, scope_name, flag)] = lookup_var' var_name vars scope_name
 
 -- searches tree bottom-up
 lookup_var' :: Name -> Variables -> ScopeName -> Var
@@ -115,13 +115,13 @@ get_var_info_from_scope var_name (varx:varxs) = let (namex, typex, valuex, funcb
   if var_name == namex then (namex, typex, valuex, funcbx) else get_var_info_from_scope var_name varxs
 
 get_current_scope_name :: MyState -> ScopeName
-get_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = scope_name
+get_current_scope_name [(vars, sk, ts, sp, pc, scope_name, flag)] = scope_name
 
 get_current_scope :: MyState -> [Var]
-get_current_scope [(Node _ vars _, sk, ts, sp, pc, scope_name)] = vars
+get_current_scope [(Node _ vars _, sk, ts, sp, pc, scope_name, flag)] = vars
 
 get_current_scope_tree :: MyState -> Variables
-get_current_scope_tree [(vars, sk, ts, sp, pc, scope_name)] = vars
+get_current_scope_tree [(vars, sk, ts, sp, pc, scope_name, flag)] = vars
 
 check_var_is_declared :: Name -> MyState -> ParsecT [InfoAndToken] MyState IO ()
 check_var_is_declared var_name s = do
@@ -132,8 +132,8 @@ check_var_is_declared var_name s = do
 
 -- wrapper for symtable_update_variable'
 symtable_update_variable :: (Token, Value, FunctionBody) -> MyState -> MyState
-symtable_update_variable (Id var_name, value, funcb) [(vars, sk, ts, sp, pc, scope_name)] = do
-  [(symtable_update_variable' scope_name (var_name, NoneToken, value, funcb) vars, sk, ts, sp, pc, scope_name)]
+symtable_update_variable (Id var_name, value, funcb) [(vars, sk, ts, sp, pc, scope_name, flag)] = do
+  [(symtable_update_variable' scope_name (var_name, NoneToken, value, funcb) vars, sk, ts, sp, pc, scope_name, flag)]
 
 -- updates tree bottom-up
 symtable_update_variable' :: ScopeName -> (Name, MyType, Value, FunctionBody) -> Variables -> Variables
@@ -170,8 +170,8 @@ update_in_variables (name, _type, value, funcb) (varx:varxs) =
   else (varx : update_in_variables (name, _type, value, funcb) varxs)
 
 symtable_update_variable_type :: (Token, MyType) -> MyState -> MyState
-symtable_update_variable_type (Id var_name, _type) [(vars, sk, ts, sp, pc, scope_name)] = do
-  [(symtable_update_variable' scope_name (var_name, _type, NoneToken, [NoneToken]) vars, sk, ts, sp, pc, scope_name)]
+symtable_update_variable_type (Id var_name, _type) [(vars, sk, ts, sp, pc, scope_name, flag)] = do
+  [(symtable_update_variable' scope_name (var_name, _type, NoneToken, [NoneToken]) vars, sk, ts, sp, pc, scope_name, flag)]
 
 update_struct :: [Token] -> (MyType, Value) -> MyState -> MyState
 update_struct [] _ _ = error_msg "dame" []
@@ -211,8 +211,8 @@ var_is_attrb_of_struct ((varx_name, _, _, _):varxs) name = if varx_name == name 
 ----------------- Remove -------------------
 
 remove_current_scope_name :: MyState -> MyState
-remove_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = 
-  [(symtable_remove_scope scope_name vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name)]
+remove_current_scope_name [(vars, sk, ts, sp, pc, scope_name, flag)] = 
+  [(symtable_remove_scope scope_name vars, sk, ts, sp, pc, reverse $ tail $ reverse scope_name, flag)]
 
 symtable_remove_scope :: ScopeName -> Variables -> Variables
 symtable_remove_scope scope_name NoChildren = error_msg "Failure in leaving scope '%'" [show scope_name]
@@ -226,8 +226,14 @@ symtable_remove_scope (scope_namex:scope_namexs) (Node name vars children) =
 
 ----------------- Semantic -----------------
 
+get_flag :: MyState -> Bool
+get_flag [(vars, sk, ts, sp, pc, sn, flag)] = flag
+
+set_flag :: Bool -> MyState -> MyState
+set_flag flag [(vars, sk, ts, sp, pc, sn, old_flag)] = [(vars, sk, ts, sp, pc, sn, flag)]
+
 get_value_from_exp :: [Token] -> MyState -> Token
-get_value_from_exp expression [(vars, sk, ts, sp, pc, sn)] = IntLiteral 0
+get_value_from_exp expression [(vars, sk, ts, sp, pc, sn, flag)] = IntLiteral 0
 
 get_default_value :: MyState -> Token -> Token
 get_default_value _ Nat = NatLiteral 0

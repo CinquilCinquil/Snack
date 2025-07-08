@@ -6,6 +6,7 @@ import Control.Monad.IO.Class
 import TokenParser
 import Funcs -- includes types and functions
 import System.Environment
+import Control.Monad
 
 ---------------------------------------------------
 ----------------- Parsers for non-terminals
@@ -155,10 +156,11 @@ stmt = (do a <- decl_or_atrib_or_access; return (Unit, a))
     c <- semiColonToken
     return (b_type, (a:b) ++ [c]))
    <|> (do
+    s <- getState
     a <- printToken
     (_, b_value, b) <- exp_rule
     c <- semiColonToken
-    liftIO (putStrLn $ showLiteral b_value)
+    when (get_flag s) $ liftIO (putStrLn $ showLiteral b_value)
     return (Unit, (a:b) ++ [c])
    )
 
@@ -396,10 +398,13 @@ if_rule = do
         --
         updateState (add_current_scope_name "if")
         --
+        s' <- getState;
+        if (get_flag s') then updateState (set_flag b_value) else updateState (set_flag False)
         (c_type, c) <- block
         --
         updateState (remove_current_scope_name)
         --
+        if (get_flag s') then updateState (set_flag (not b_value)) else updateState (set_flag False)
         (d_type, d) <- else_op
         --
         s <- getState; pos <- getPosition
