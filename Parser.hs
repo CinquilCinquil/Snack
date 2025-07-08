@@ -590,9 +590,9 @@ fun_decl = do
         (d_types, _, d) <- (do a <- params; return a) <|> (return ([], [], []))
         e <- closeParenthesesToken
         f <- colonToken
-        g <- types -- TODO: add param types to func type
+        g <- types
         --
-        updateState (symtable_update_variable_type (b, g))
+        updateState (symtable_update_variable_type (b, g)) -- TODO: 'g' is only the return type, add param types?
         --
         (h_type, h) <- block
         --
@@ -601,7 +601,7 @@ fun_decl = do
         --
         updateState (remove_current_scope_name)
         --
-        updateState (symtable_update_variable (b, dontChangeValue, h))
+        updateState (symtable_update_variable (b, dontChangeValue, d ++ h))
         --
         return ([a, b, c] ++ d ++ [e, f, g] ++ h)
 
