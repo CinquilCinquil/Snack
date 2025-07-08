@@ -117,8 +117,11 @@ get_var_info_from_scope var_name (varx:varxs) = let (namex, typex, valuex, funcb
 get_current_scope_name :: MyState -> ScopeName
 get_current_scope_name [(vars, sk, ts, sp, pc, scope_name)] = scope_name
 
-get_current_scope :: MyState -> Variables
-get_current_scope [(vars, sk, ts, sp, pc, scope_name)] = vars
+get_current_scope :: MyState -> [Var]
+get_current_scope [(Node _ vars _, sk, ts, sp, pc, scope_name)] = vars
+
+get_current_scope_tree :: MyState -> Variables
+get_current_scope_tree [(vars, sk, ts, sp, pc, scope_name)] = vars
 
 check_var_is_declared :: Name -> MyState -> ParsecT [InfoAndToken] MyState IO ()
 check_var_is_declared var_name s = do
@@ -172,27 +175,34 @@ symtable_update_variable_type (Id var_name, _type) [(vars, sk, ts, sp, pc, scope
 
 update_struct :: [Token] -> (MyType, Value) -> MyState -> MyState
 update_struct [] _ _ = error_msg "dame" []
-update_struct (father_struct:access_chain) (var_type, var_value) s = do
+update_struct (father_struct:access_chain) var_info s = do
   let (Id father_struct_name) = father_struct
   let filtered_access_chain = filter (\x -> x /= Period) access_chain
   --
   let (_, _, StructLiteral attrbs, _) = lookup_var father_struct_name s
-  let (target_name, StructLiteral target_attrbs) = struct_chain_traversal attrbs filtered_access_chain
+  let new_struct_literal = struct_chain_traversal_and_update attrbs filtered_access_chain var_info
   --
-  let new_var_value = (target_name, NoneToken, var_value, [NoneToken])
-  symtable_update_variable (Id father_struct_name, StructLiteral (update_in_variables new_var_value target_attrbs), [NoneToken]) s
+  symtable_update_variable (Id father_struct_name, new_struct_literal, [NoneToken]) s
 
-struct_chain_traversal :: [Var] -> [Token] -> (Name, Token)
-struct_chain_traversal _ [] = error_msg "dame1" []
-struct_chain_traversal [] _ = error_msg "dame2" []
-struct_chain_traversal attrbs [(Id t_name)] = 
-  if var_is_attrb_of_struct attrbs t_name then (t_name, StructLiteral attrbs) else error_msg "dame3" []
-struct_chain_traversal attrbs ((Id t_name):ts) =
+struct_chain_traversal_and_update :: [Var] -> [Token] -> (MyType, Value) -> Token
+struct_chain_traversal_and_update _ [] _ = error_msg "dame1" []
+struct_chain_traversal_and_update [] _ _ = error_msg "dame2" []
+--
+struct_chain_traversal_and_update attrbs [(Id t_name)] (var_type, var_value) =
   if var_is_attrb_of_struct attrbs t_name then do
-    case head attrbs of
-      (varx_name, _, StructLiteral attrbs', _) -> struct_chain_traversal attrbs' ts
-      (varx_name, _, _, _) -> error_msg "Variable '%' is not struct" [varx_name]
-  else error_msg "dame4" []
+    let new_var_value = (t_name, NoneToken, var_value, [NoneToken])
+    -- TODO: type check this (var_type == t_name.type)
+    StructLiteral (update_in_variables new_var_value attrbs)
+  else error_msg "dame3" []
+--
+struct_chain_traversal_and_update attrbs ((Id t_name):ts) var_info =
+  if var_is_attrb_of_struct attrbs t_name then do
+    case get_var_info_from_scope t_name attrbs of
+      (varx_name, _, StructLiteral attrbs', _) -> do
+        let new_var_value = (varx_name, NoneToken, struct_chain_traversal_and_update attrbs' ts var_info, [NoneToken])
+        StructLiteral (update_in_variables new_var_value attrbs)
+      (varx_name, _, _, _) -> error_msg "Variable '%' is not struct. Error #4" [varx_name]
+  else error_msg "'%' is not an attribute of '%'. Error #3" [t_name, show ts]
 
 var_is_attrb_of_struct :: [Var] -> Name -> Bool
 var_is_attrb_of_struct [] _ = False

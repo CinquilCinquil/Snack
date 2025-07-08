@@ -122,6 +122,7 @@ struct_attrib a = do
                 e <- semiColonToken
                 --
                 updateState (update_struct b_struct_tree (d_type, d_value))
+                print_state
                 --
                 return (b_struct_tree ++ [c] ++ d ++ [e])
 
@@ -182,21 +183,21 @@ exp_base = (do a <- uminus_remaining; return a)
            c <- closeParenthesesToken
            return (b_type, b_value, [a] ++ b ++ [c]))
 
-struct_access :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
-struct_access = do
+struct_access :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
+struct_access vars = do
                 (Id name) <- idToken
                 --
                 s <- getState
-                let vars = case lookup_var name s of 
-                              (_, _, StructLiteral vars, _) -> vars
-                              _ -> error_msg "dame5" []
-                b <- struct_access' (Id name) vars
+                let vars' = case get_var_info_from_scope name vars of 
+                              (name, _, StructLiteral attrbs, _) -> attrbs
+                              _ -> error_msg "Variable '%' is not a struct. Error #5" [name]
+                b <- struct_access' (Id name) vars'
                 return b
 
 struct_access' :: Token -> [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 struct_access' a vars = (do
                 b <- periodToken
-                (c_type, c_value, c) <- struct_access
+                (c_type, c_value, c) <- struct_access vars
                 --
                 let (attrb_type, attrb_value) = case c of
                                                   [(Id last_in_chain)] -> do 
@@ -213,7 +214,7 @@ struct_access' a vars = (do
 
 term :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 term = (do (_type, value, a) <- literal; return (_type, value, [a]))
-      <|> (do a <- struct_access; return a)
+      <|> (do s <- getState; a <- struct_access (get_current_scope s); return a)
 
 function_call :: ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 function_call = fail "samba"
@@ -642,7 +643,7 @@ struct_decl = do
             c <- struct_block
             --
             s <- getState
-            let (Node _ struct_vars _) = search_scope_tree (get_current_scope_name s) (get_current_scope s)
+            let (Node _ struct_vars _) = search_scope_tree (get_current_scope_name s) (get_current_scope_tree s)
             --
             updateState (remove_current_scope_name)
             --
