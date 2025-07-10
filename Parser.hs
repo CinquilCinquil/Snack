@@ -160,8 +160,8 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
     (b_type, b_value, _, b) <- exp_rule
     c <- semiColonToken
     --
-    s <- getState
-    when (get_flag s) $ do updateState (set_return_value b_value)
+    s <- getState; pos <- getPosition
+    when (get_flag s) $ do updateState (set_return_value pos b_value)
     --
     return (b_type, (a:b) ++ [c]))
    <|> (do
@@ -205,11 +205,13 @@ struct_access vars = do
                 (Id name) <- idToken
                 --
                 s <- getState
-                let vars' = case get_var_info_from_scope name vars of 
-                              (name, _, StructLiteral attrbs, _) -> attrbs
-                              _ -> error_msg "Variable '%' is not a struct. Error #5" [name]
-                b <- struct_access' (Id name) vars'
-                return b
+                case get_var_info_from_scope name vars of 
+                  (name, _, StructLiteral attrbs, _) -> do
+                      b <- struct_access' (Id name) attrbs
+                      return b
+                  _ -> do
+                    pos <- getPosition
+                    error_msg "Variable '%' is not a struct! Error #5. Line: % Column: %" [name, showLine pos, showColumn pos]
 
 struct_access' :: Token -> [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access' a vars = (do
@@ -257,8 +259,8 @@ function_call a = do
         --
         updateState (remove_current_scope_name)
   --
-  s'' <- getState
-  let result_value = if is_executing then get_return_value s'' else NoneToken
+  s' <- getState; pos' <- getPosition
+  let result_value = if is_executing then get_return_value pos' s' else NoneToken
   -- when is_executing $ desempilhar
   --
   d <- closeParenthesesToken

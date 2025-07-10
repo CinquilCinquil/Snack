@@ -186,32 +186,32 @@ symtable_update_variable_type (Id var_name, _type) [(vars, sk, ts, sp, pc, scope
   [(symtable_update_variable' scope_name (var_name, _type, NoneToken, [NoneToken]) vars, sk, ts, sp, pc, scope_name, flag)]
 
 update_struct :: SourcePos -> [Token] -> (MyType, Value) -> MyState -> MyState
-update_struct _ [] _ _ = error_msg "dame" []
+update_struct pos [] _ _ = error_msg "Failure updating struct! Line: % Column: %" [showLine pos, showColumn pos]
 update_struct pos (father_struct:access_chain) var_info s = do
   let (Id father_struct_name) = father_struct
   let filtered_access_chain = filter (\x -> x /= Period) access_chain
   --
   let (_, _, StructLiteral attrbs, _) = lookup_var pos father_struct_name s
-  let new_struct_literal = struct_chain_traversal_and_update attrbs filtered_access_chain var_info
+  let new_struct_literal = struct_chain_traversal_and_update pos attrbs filtered_access_chain var_info
   --
   symtable_update_variable (Id father_struct_name, new_struct_literal, [NoneToken]) s
 
-struct_chain_traversal_and_update :: [Var] -> [Token] -> (MyType, Value) -> Token
-struct_chain_traversal_and_update _ [] _ = error_msg "dame1" []
-struct_chain_traversal_and_update [] _ _ = error_msg "dame2" []
+struct_chain_traversal_and_update :: SourcePos -> [Var] -> [Token] -> (MyType, Value) -> Token
+struct_chain_traversal_and_update pos _ [] _ = error_msg "Failure traversing struct chain Error #7 ! Line: % Column: %" [showLine pos, showColumn pos]
+struct_chain_traversal_and_update pos [] _ _ = error_msg "Failure traversing struct chain Error #8 ! Line: % Column: %" [showLine pos, showColumn pos]
 --
-struct_chain_traversal_and_update attrbs [(Id t_name)] (var_type, var_value) =
+struct_chain_traversal_and_update pos attrbs [(Id t_name)] (var_type, var_value) =
   if var_is_attrb_of_struct attrbs t_name then do
     let new_var_value = (t_name, NoneToken, var_value, [NoneToken])
     -- TODO: type check this (var_type == t_name.type)
     StructLiteral (update_in_variables new_var_value attrbs)
-  else error_msg "dame3" []
+  else error_msg "Failure traversing struct chain Error #9. Variable '%' is not an attribute! Line: % Column: %" [t_name, showLine pos, showColumn pos]
 --
-struct_chain_traversal_and_update attrbs ((Id t_name):ts) var_info =
+struct_chain_traversal_and_update pos attrbs ((Id t_name):ts) var_info =
   if var_is_attrb_of_struct attrbs t_name then do
     case get_var_info_from_scope t_name attrbs of
       (varx_name, _, StructLiteral attrbs', _) -> do
-        let new_var_value = (varx_name, NoneToken, struct_chain_traversal_and_update attrbs' ts var_info, [NoneToken])
+        let new_var_value = (varx_name, NoneToken, struct_chain_traversal_and_update pos attrbs' ts var_info, [NoneToken])
         StructLiteral (update_in_variables new_var_value attrbs)
       (varx_name, _, _, _) -> error_msg "Variable '%' is not struct. Error #4" [varx_name]
   else error_msg "'%' is not an attribute of '%'. Error #3" [t_name, show ts]
@@ -244,16 +244,16 @@ get_flag [(vars, sk, ts, sp, pc, sn, flag)] = flag
 set_flag :: Bool -> MyState -> MyState
 set_flag flag [(vars, sk, ts, sp, pc, sn, old_flag)] = [(vars, sk, ts, sp, pc, sn, flag)]
 
-get_return_value :: MyState -> Value
-get_return_value [(_, stack, _, _, _, _, _)] = 
+get_return_value :: SourcePos -> MyState -> Value
+get_return_value pos [(_, stack, _, _, _, _, _)] = 
   case stack of
-    [] -> error_msg "dame1" []
+    [] -> error_msg "Trying to get return value but there isn't an instance in stack! Error #10. Line: % Column: %" [showLine pos, showColumn pos]
     ((_, _, value):xs) -> value
 
-set_return_value :: Value -> MyState -> MyState
-set_return_value value [(vars, stack, ts, sp, pc, sn, flag)] = 
+set_return_value :: SourcePos -> Value -> MyState -> MyState
+set_return_value pos value [(vars, stack, ts, sp, pc, sn, flag)] = 
   case stack of
-    [] -> error_msg "dame2" []
+    [] -> error_msg "Trying to set return value but there isn't an instance in stack! Error #11. Line: % Column: %" [showLine pos, showColumn pos]
     ((name, pc, _):xs) -> [(vars, (name, pc, value):xs, ts, sp, pc, sn, flag)]
 
 get_value_from_exp :: [Token] -> MyState -> Token
