@@ -170,7 +170,8 @@ data Token =
   Main |
   Print |
   ErrorToken |
-  NoneToken
+  NoneToken |
+  EndOfParamsToken
   deriving (Eq,Show)
 
 getLC (AlexPn _ l c) = (l, c)

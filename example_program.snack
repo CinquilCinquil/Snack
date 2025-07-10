@@ -1,4 +1,0 @@
-types:
-decls:
-main:
-    a : bool := false;

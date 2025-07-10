@@ -1,0 +1,15 @@
+types:
+decls:
+    struct X {
+        a : X;
+        b : string;
+    };
+main:
+    x : X;
+    x.b := "oi";
+    x.a := x;
+    x.a.b := "aaaaaaa";
+    spit x.a.b;
+    spit x.b;
+    x.a := x;
+    spit x.a.b;
