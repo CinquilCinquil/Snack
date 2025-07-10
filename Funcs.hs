@@ -177,7 +177,9 @@ update_in_variables (name, _type, value, funcb) (varx:varxs) =
   let (namex, typex, valuex, funcbx) = varx in
   if name == namex
   then ((namex, update_attr _type typex, update_attr value valuex, if (head funcb) /= NoneToken then funcb else funcbx):varxs)
-  else (varx : update_in_variables (name, _type, value, funcb) varxs)
+  else case update_in_variables (name, _type, value, funcb) varxs of
+    [] -> []
+    varxs_new -> (varx : varxs_new)
 
 symtable_update_variable_type :: (Token, MyType) -> MyState -> MyState
 symtable_update_variable_type (Id var_name, _type) [(vars, sk, ts, sp, pc, scope_name, flag)] = do

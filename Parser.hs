@@ -425,7 +425,7 @@ mult_or_div = (do a <- divToken; return a) <|> (do a <- multToken; return a)
 rel_op :: ParsecT [InfoAndToken] MyState IO (Token)
 rel_op = (do a <- leqToken; return a)
     <|>  (do a <- geqToken; return a)
-    <|>  (do a <- compToken; return a)
+    <|>  (do a <- equalsToken; return a)
     <|>  (do a <- smallerToken; return a)
     <|>  (do a <- greaterToken; return a)
     <|>  (do a <- differentToken; return a)
@@ -657,13 +657,13 @@ fun_decl = do
         f <- colonToken
         g <- types
         --
-        liftIO (print g)
         updateState (symtable_update_variable_type (b, g)) -- TODO: 'g' is only the return type, add param types?
         --
         (h_type, h) <- block
         --
+        let (Id func_name) = b
         s <- getState; pos <- getPosition
-        type_check_with_msg "In function return: " pos s check_eq h_type g
+        type_check_with_msg (replace '%' [func_name] "In function '%' return: ") pos s check_eq h_type g
         --
         updateState (remove_current_scope_name)
         updateState (set_flag True)
@@ -674,23 +674,23 @@ fun_decl = do
 
 params :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
 params = do
-        b <- idToken
-        c <- colonToken
-        d <- types
+        a <- idToken
+        b <- colonToken
+        c <- types
         --
         s <- getState; pos <- getPosition
-        updateState (symtable_insert_variable (b, d, get_default_value pos s d, []))
+        updateState (symtable_insert_variable (a, c, get_default_value pos s c, []))
         --
-        (e_type, e_value, e) <- atrib_opt d
+        (d_type, d_value, d) <- atrib_opt c
         --
         s' <- getState; pos' <- getPosition
-        let var_value = if e == [] then get_default_value pos' s' d else e_value
-        updateState (symtable_update_variable (b, var_value, dontChangeFunctionBody))
+        let var_value = if d == [] then get_default_value pos' s' c else d_value
+        updateState (symtable_update_variable (a, var_value, dontChangeFunctionBody))
         liftIO (putStrLn "params_declaration:")
         print_state
         --
-        (f_types, f_values, f) <- params_op
-        return (e_type:f_types, e_value:f_values, (b:c:[d]) ++ e ++ f)
+        (e_types, e_values, e) <- params_op
+        return (d_type:e_types, d_value:e_values, (a:b:[c]) ++ d ++ e)
 
 params_op :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
 params_op = (do
