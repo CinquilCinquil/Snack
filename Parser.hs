@@ -24,10 +24,11 @@ program = do
             liftIO (putStrLn "Parsing Complete: ")
             return $ b:[c] ++ d ++ [e] ++ f
 
-parse_func :: ParsecT [InfoAndToken] MyState IO ([Token])
+parse_func :: ParsecT [InfoAndToken] MyState IO (MyState, [Token])
 parse_func = do
             (h_type, h) <- block
-            return h
+            s <- getState
+            return (s, h)
 
 ----------------- Declarations Functions and Globals -----------------
 
@@ -71,7 +72,7 @@ declaration = (do
 decl_or_atrib_or_access_or_call :: ParsecT [InfoAndToken] MyState IO ([Token])
 decl_or_atrib_or_access_or_call = do
                           a <- idToken
-                          b <- decl_or_atrib a <|> struct_attrib a <|> (do (_, _, b) <- function_call a; return b)
+                          b <- decl_or_atrib a <|> struct_attrib a <|> (do (_, _, b) <- function_call a; c <- semiColonToken; return (b ++ [c]))
                           return b
 
 decl_or_atrib :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
@@ -159,7 +160,8 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
     (b_type, b_value, _, b) <- exp_rule
     c <- semiColonToken
     --
-    updateState (set_return_value b_value)
+    s <- getState
+    when (get_flag s) $ do updateState (set_return_value b_value)
     --
     return (b_type, (a:b) ++ [c]))
    <|> (do
@@ -195,7 +197,7 @@ exp_base = (do (a_type, a_value, a) <- uminus_remaining; return (a_type, a_value
 struct_access_or_function_call :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access_or_function_call vars = do
       a <- idToken
-      b <- struct_access' a vars <|> (do (b_type, b_value, b) <- function_call a; return (b_type, b_value, noFuncBody, b))
+      b <- (do (b_type, b_value, b) <- function_call a; return (b_type, b_value, noFuncBody, b)) <|> (struct_access' a vars)
       return b
 
 struct_access :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
@@ -242,25 +244,24 @@ function_call a = do
   let (func_params, func_params_types, func_body) = get_params func_code
   (c_types, c_values, c_bodies, c) <- args_rule_opt
   check_types (type_check pos s check_eq) c_types func_params_types
-  liftIO (print (func_params, func_params_types, func_body))
   -- Semantics
   let is_executing = get_flag s
   when is_executing $ do
         updateState (add_current_scope_name "fun")
         updateState (load_params func_params func_params_types c_values c_bodies)
+        updateState (add_call_to_stack func_name)
         --
         s' <- getState
         x <- parse_function func_name func_body s'
         --
         updateState (remove_current_scope_name)
   --
-  s' <- getState
-  let result_value = if is_executing then get_return_value s' else NoneToken
+  s'' <- getState
+  let result_value = if is_executing then get_return_value s'' else NoneToken
   -- when is_executing $ desempilhar
   --
   d <- closeParenthesesToken
-  e <- semiColonToken
-  return (func_type, result_value, (a:b:c) ++ [d, e])
+  return (func_type, result_value, (a:b:c) ++ [d])
 
 args_rule_opt :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [FunctionBody], [Token])
 args_rule_opt = (do
@@ -656,6 +657,7 @@ fun_decl = do
         f <- colonToken
         g <- types
         --
+        liftIO (print g)
         updateState (symtable_update_variable_type (b, g)) -- TODO: 'g' is only the return type, add param types?
         --
         (h_type, h) <- block
@@ -770,9 +772,10 @@ defaultValue = StringLiteral "Default Value"
 parse_function :: Name -> [Token] -> MyState -> ParsecT [InfoAndToken] MyState IO ()
 parse_function func_name func_body s = do
   result <- liftIO (runParserT parse_func s (replace '%' [func_name] "Parsing error inside '%' call!") (to_infoAndToken func_body))
-  let tokens = case result of
+  let new_state = case result of
                 Left err -> error (show err)
-                Right ans -> ans
+                Right (new_state, ans) -> new_state
+  updateState(\s -> new_state)
   return ()
 
 -- IO (Either ParseError [Token])

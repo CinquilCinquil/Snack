@@ -87,6 +87,9 @@ load_params :: [Name] -> [MyType] -> [Value] -> [FunctionBody] -> MyState -> MyS
 load_params [] [] [] [] s = s
 load_params (x:xs) (y:ys) (z:zs) (w:ws) s = load_params xs ys zs ws (symtable_insert_variable (Id x, y, z, w) s)
 
+add_call_to_stack :: Name -> MyState -> MyState
+add_call_to_stack func_name [(vars, sk, ts, sp, pc, sn, flag)] = [(vars, (func_name, 0, StringLiteral "c"):sk, ts, sp, pc, sn, flag)]
+
 ----------------- Search -----------------
 
 -- wrapper for lookup_var'
@@ -248,7 +251,7 @@ get_return_value [(_, stack, _, _, _, _, _)] =
 set_return_value :: Value -> MyState -> MyState
 set_return_value value [(vars, stack, ts, sp, pc, sn, flag)] = 
   case stack of
-    [] -> error_msg "dame1" []
+    [] -> error_msg "dame2" []
     ((name, pc, _):xs) -> [(vars, (name, pc, value):xs, ts, sp, pc, sn, flag)]
 
 get_value_from_exp :: [Token] -> MyState -> Token
