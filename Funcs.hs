@@ -285,6 +285,11 @@ get_params (id:Colon:the_type:xs) = do
   (id_name:params, the_type:param_types, func_body)
 get_params _ = error_msg "Invalid params in function call! Error #2" []
 
+check_param_amount :: SourcePos -> [a] -> [b] -> ParsecT [InfoAndToken] MyState IO ()
+check_param_amount pos a b = if (length a) == (length b)
+  then return ()
+  else error_msg "Wrong number of arguments in function call! Line: % Column: %" [showLine pos, showColumn pos]
+
 -- wrapper for type_check'
 -- pos -> State -> type checking function -> type or identifier token -> type or identifier token -> ...
 type_check :: SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
