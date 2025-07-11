@@ -7,6 +7,7 @@ import TokenParser
 import Funcs -- includes types and functions
 import System.Environment
 import Control.Monad
+import Data.Data
 
 ---------------------------------------------------
 ----------------- Parsers for non-terminals
@@ -172,7 +173,24 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
     s <- getState
     when (get_flag s) $ liftIO (putStrLn $ showLiteral b_value)
     --
-    return (Unit, (a:b) ++ [c])
+    return (Unit, (a:b) ++ [c]))
+   <|> (do
+    a <- readToken
+    (_, b_value, _, b:bs) <- term
+    c <- semiColonToken
+    --
+    s <- getState
+    when (get_flag s) $ do
+      line <- liftIO (getLine)
+      let value = read_literal line
+      -- Type checking
+      s <- getState; pos <- getPosition; let (Id b_name) = b
+      when (not $ (toConstr value) == (toConstr b_value)) $ do
+        error_msg "Type of eaten value '%' does not match type of '%'. Line: % Column: %" [showLiteral value, b_name, showLine pos, showColumn pos]
+      --
+      updateState (symtable_update_variable (b, value, dontChangeFunctionBody))
+    --
+    return (Unit, (a:b:bs) ++ [c])
    )
 
 exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])

@@ -1,5 +1,7 @@
 {
+{-# LANGUAGE DeriveDataTypeable #-}
 module Lexer (Token(..), InfoAndToken(..), AlexPosn(..), alexScanTokens, getTokens) where
+import Data.Data
 import System.IO
 }
 
@@ -87,6 +89,7 @@ tokens :-
   "decls:"                              { \p _ -> (getLC p, Decls) }
   "main:"                               { \p _ -> (getLC p, Main) }
   "spit"                                { \p _ -> (getLC p, Print) }
+  "eat"                                 { \p _ -> (getLC p, Read) }
   $L[$L $D \_ \']*	                    { \p s -> (getLC p, Id s) }
 {
 
@@ -169,10 +172,11 @@ data Token =
   Decls |
   Main |
   Print |
+  Read |
   ErrorToken |
   NoneToken |
   EndOfParamsToken
-  deriving (Eq,Show)
+  deriving (Eq,Show,Data)
 
 getLC (AlexPn _ l c) = (l, c)
 

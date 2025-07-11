@@ -2,9 +2,11 @@ module Funcs where
 
 import Lexer
 import Text.Parsec
+import Text.Read (readMaybe)
 import Control.Monad.IO.Class
 import TokenParser
 import System.Environment
+import qualified Control.Exception as DefaultException
 
 ---------------------------------------------------
 ----------------- Types
@@ -423,13 +425,20 @@ showLiteral (UnitLiteral x) = show x
 showLiteral NoneToken = "No Value"
 showLiteral x = show x
 
+read_literal :: String -> Token
+read_literal s
+  | Just x <- readMaybe s :: Maybe Int = IntLiteral x
+  | Just x <- readMaybe s :: Maybe Float = FloatLiteral x
+  | Just x <- readMaybe s :: Maybe Bool = BoolLiteral x
+  | Just x <- readMaybe s :: Maybe Char = CharLiteral x
+  | otherwise = StringLiteral s
 
 ----------------- Others -----------------
 
 print_state :: ParsecT [InfoAndToken] MyState IO ()
 print_state = do
               s <- getState
-              liftIO (print s)
+              liftIO (putStrLn $ "The State: " ++ (show s) ++ ". ")
 
 var_error = ("", ErrorToken, ErrorToken, [])
 

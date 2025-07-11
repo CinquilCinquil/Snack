@@ -138,3 +138,4 @@ declsToken = tokenParser Decls
 mainToken = tokenParser Main
 returnToken = tokenParser Return
 printToken = tokenParser Print
+readToken = tokenParser Read
