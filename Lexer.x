@@ -43,6 +43,11 @@ tokens :-
   with                                  { \p _ -> (getLC p, With) }
   form                                  { \p _ -> (getLC p, Form) }
   -- Operations / Relations
+  "toInt"                               { \p _ -> (getLC p, ToIntToken) }
+  "toFloat"                             { \p _ -> (getLC p, ToFloatToken) }
+  "toString"                            { \p _ -> (getLC p, ToStringToken) }
+  "toBool"                              { \p _ -> (getLC p, ToBoolToken) }
+  "toChar"                              { \p _ -> (getLC p, ToCharToken) }
   ":="                                  { \p _ -> (getLC p, Assign) }
   "=="                                  { \p _ -> (getLC p, Comp) }
   "="                                   { \p _ -> (getLC p, Equals) }
@@ -66,7 +71,8 @@ tokens :-
   type                                  { \p s -> (getLC p, Type s) }
   nat                                   { \p _ -> (getLC p, Nat) }
   int                                   { \p _ -> (getLC p, Int) }
-  string                                { \p _ -> (getLC p, String) }
+  string                                { \p _ -> (getLC p, TString) }
+  char                                  { \p _ -> (getLC p, TChar) }
   float                                 { \p _ -> (getLC p, Float) }
   bool                                  { \p _ -> (getLC p, TBool) }
   unit                                  { \p _ -> (getLC p, Unit) }
@@ -126,6 +132,11 @@ data Token =
   With |
   Form |
   -- Operations / Relations
+  ToIntToken |
+  ToFloatToken |
+  ToStringToken |
+  ToBoolToken |
+  ToCharToken |
   Assign |
   Comp |
   Equals |
@@ -149,7 +160,7 @@ data Token =
   Type String |
   Nat |
   Int |
-  String |
+  TString |
   TChar |
   Float |
   TBool |

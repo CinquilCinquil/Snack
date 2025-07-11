@@ -6,7 +6,7 @@ import Text.Read (readMaybe)
 import Control.Monad.IO.Class
 import TokenParser
 import System.Environment
-import qualified Control.Exception as DefaultException
+import Data.Char(digitToInt, isNumber, toLower, intToDigit)
 
 ---------------------------------------------------
 ----------------- Types
@@ -264,7 +264,7 @@ get_value_from_exp expression [(vars, sk, ts, sp, pc, sn, flag)] = IntLiteral 0
 get_default_value :: SourcePos -> MyState -> Token -> Token
 get_default_value _ _ Nat = NatLiteral 0
 get_default_value _ _ Int = IntLiteral 0
-get_default_value _ _ String = StringLiteral ""
+get_default_value _ _ TString = StringLiteral ""
 get_default_value _ _ TChar = CharLiteral '\a'
 get_default_value _ _ Float = FloatLiteral 0.0
 get_default_value _ _ TBool = BoolLiteral False
@@ -431,7 +431,64 @@ read_literal s
   | Just x <- readMaybe s :: Maybe Float = FloatLiteral x
   | Just x <- readMaybe s :: Maybe Bool = BoolLiteral x
   | Just x <- readMaybe s :: Maybe Char = CharLiteral x
+  | Just x <- readMaybe s :: Maybe () = UnitLiteral x
+  -- TODO: READ NAT
   | otherwise = StringLiteral s
+
+to_int :: Token -> Token
+to_int (NatLiteral x) = IntLiteral x
+to_int (IntLiteral x) = IntLiteral x
+to_int (FloatLiteral x) = IntLiteral (floor x)
+to_int (BoolLiteral x) = if x then IntLiteral 1 else IntLiteral 0
+to_int (CharLiteral x) = IntLiteral (digitToInt x)
+to_int (UnitLiteral x) = IntLiteral 1
+to_int (StringLiteral x) = do
+  if foldl (&&) True (map isNumber x) then IntLiteral (read x) else error_msg "Cannot convert '%' to Int" [x]
+to_int x = error_msg "Invalid conversion of '%' to Int" [show x]
+
+to_float :: Token -> Token
+to_float (NatLiteral x) = FloatLiteral (fromIntegral x)
+to_float (IntLiteral x) = FloatLiteral (fromIntegral x)
+to_float (FloatLiteral x) = FloatLiteral x
+to_float (BoolLiteral x) = if x then FloatLiteral 1.0 else FloatLiteral 0.0
+to_float (CharLiteral x) = FloatLiteral (fromIntegral $ digitToInt x)
+to_float (UnitLiteral x) = FloatLiteral 1.0
+to_float (StringLiteral x) = do
+  if foldl (&&) True (map (\s -> isNumber s || s == '.') x)
+    then FloatLiteral (read x)
+    else error_msg "Cannot convert '%' to Float" [x]
+to_float x = error_msg "Invalid conversion of '%' to Float" [show x]
+
+to_string :: Token -> Token
+to_string x = StringLiteral (showLiteral x)
+
+to_bool :: Token -> Token
+to_bool (NatLiteral x) = BoolLiteral (not $ x == 0)
+to_bool (IntLiteral x) = BoolLiteral (not $ x == 0)
+to_bool (FloatLiteral x) = BoolLiteral (not $ x == 0.0)
+to_bool (BoolLiteral x) = BoolLiteral x
+to_bool (CharLiteral x) = do 
+  let lower_case_x = toLower x
+  if (lower_case_x == 't') then BoolLiteral True else 
+    if (lower_case_x == 'f') then BoolLiteral False else
+      error_msg "Invalid conversion of '%' to Bool" [show x]
+to_bool (UnitLiteral x) = BoolLiteral False
+to_bool (StringLiteral x) = do
+  if length x == 1 then
+    to_bool $ CharLiteral (head x)
+  else
+    error_msg "Invalid conversion of '%' to Bool" [x]
+
+to_char :: Token -> Token
+to_char (NatLiteral x) = CharLiteral (intToDigit x)
+to_char (IntLiteral x) = CharLiteral (intToDigit x)
+to_char (FloatLiteral x) = CharLiteral (intToDigit $ floor x)
+to_char (BoolLiteral x) = CharLiteral (if x then 'T' else 'F')
+to_char (CharLiteral x) = CharLiteral x
+to_char (StringLiteral x) = do
+  if length x == 1 then CharLiteral (head x) else error_msg "Invalid conversion of '%' to Char" [x] 
+
+-- TODO: to_nat
 
 ----------------- Others -----------------
 

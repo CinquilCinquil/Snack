@@ -156,7 +156,7 @@ stmt :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
    <|> (do a <- struct_decl; return (Unit, a))
    <|> (do a <- structures; return a)
-   <|> (do
+   <|> (do -- Return
     a <- returnToken
     (b_type, b_value, _, b) <- exp_rule
     c <- semiColonToken
@@ -165,7 +165,7 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
     when (get_flag s) $ do updateState (set_return_value pos b_value)
     --
     return (b_type, (a:b) ++ [c]))
-   <|> (do
+   <|> (do -- Print
     a <- printToken
     (_, b_value, _, b) <- exp_rule
     c <- semiColonToken
@@ -174,7 +174,7 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
     when (get_flag s) $ liftIO (putStrLn $ showLiteral b_value)
     --
     return (Unit, (a:b) ++ [c]))
-   <|> (do
+   <|> (do -- Read
     a <- readToken
     (_, b_value, _, b:bs) <- term
     c <- semiColonToken
@@ -190,8 +190,7 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
       --
       updateState (symtable_update_variable (b, value, dontChangeFunctionBody))
     --
-    return (Unit, (a:b:bs) ++ [c])
-   )
+    return (Unit, (a:b:bs) ++ [c]))
 
 exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 exp_rule = (do
@@ -211,6 +210,51 @@ exp_base = (do (a_type, a_value, a) <- uminus_remaining; return (a_type, a_value
            (b_type, b_value, b_body, b) <- exp_rule
            c <- closeParenthesesToken
            return (b_type, b_value, b_body, [a] ++ b ++ [c]))
+           <|> (do -- toInt
+            a <- toIntToken
+            b <- openParenthesesToken
+            (_, c_value, c_body, c) <- exp_rule
+            d <- closeParenthesesToken
+            --
+            let new_value = to_int c_value
+            --
+            return (Int, new_value, c_body, (a:b:c) ++ [d]))
+           <|> (do -- toFloat
+            a <- toFloatToken
+            b <- openParenthesesToken
+            (_, c_value, c_body, c) <- exp_rule
+            d <- closeParenthesesToken
+            --
+            let new_value = to_float c_value
+            --
+            return (Float, new_value, c_body, (a:b:c) ++ [d]))
+            <|> (do -- toString
+            a <- toStringToken
+            b <- openParenthesesToken
+            (_, c_value, c_body, c) <- exp_rule
+            d <- closeParenthesesToken
+            --
+            let new_value = to_string c_value
+            --
+            return (TString, new_value, c_body, (a:b:c) ++ [d]))
+            <|> (do -- toBool
+            a <- toBoolToken
+            b <- openParenthesesToken
+            (_, c_value, c_body, c) <- exp_rule
+            d <- closeParenthesesToken
+            --
+            let new_value = to_bool c_value
+            --
+            return (TBool, new_value, c_body, (a:b:c) ++ [d]))
+            <|> (do -- toChar
+            a <- toCharToken
+            b <- openParenthesesToken
+            (_, c_value, c_body, c) <- exp_rule
+            d <- closeParenthesesToken
+            --
+            let new_value = to_char c_value
+            --
+            return (TChar, new_value, c_body, (a:b:c) ++ [d]))
 
 struct_access_or_function_call :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access_or_function_call vars = do
@@ -755,7 +799,7 @@ struct_block = do
 literal :: ParsecT [InfoAndToken] MyState IO (MyType, Value, Token)
 literal = (do a <- natLiteralToken; return (Nat, a, a))
   <|> (do a <- intLiteralToken; return (Int, a, a))
-  <|> (do a <- stringLiteralToken; return (String, a, a))
+  <|> (do a <- stringLiteralToken; return (TString, a, a))
   <|> (do a <- floatLiteralToken; return (Float, a, a))
   <|> (do a <- charLiteralToken; return (TChar, a, a))
   <|> (do a <- boolLiteralToken; return (TBool, a, a))

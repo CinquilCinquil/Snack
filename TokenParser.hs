@@ -49,6 +49,12 @@ formToken = tokenParser Form
 
 -- Operations / Relations
 
+toIntToken = tokenParser ToIntToken
+toFloatToken = tokenParser ToFloatToken
+toStringToken = tokenParser ToStringToken
+toBoolToken = tokenParser ToBoolToken
+toCharToken = tokenParser ToCharToken
+
 assignToken = tokenParser Assign
 compToken = tokenParser Comp
 equalsToken = tokenParser Equals
@@ -80,7 +86,7 @@ typeToken = tokenPrim show update_pos get_token where
 
 natToken = tokenParser Nat
 intToken = tokenParser Int
-stringToken = tokenParser String
+stringToken = tokenParser TString
 charToken = tokenParser TChar
 floatToken = tokenParser Float
 boolToken = tokenParser TBool
