@@ -22,7 +22,7 @@ program = do
             e <- mainToken -- main:
             (_, f) <- stmts
             eof
-            liftIO (putStrLn "Parsing Complete: ")
+            liftIO (putStrLn "\nParsing Complete: ")
             return $ b:[c] ++ d ++ [e] ++ f
 
 parse_func :: ParsecT [InfoAndToken] MyState IO (MyState, [Token])
@@ -192,6 +192,93 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
     --
     return (Unit, (a:b:bs) ++ [c]))
 
+fun_decl :: ParsecT [InfoAndToken] MyState IO [Token]
+fun_decl = do
+        a <- funToken
+        b <- idToken
+        c <- openParenthesesToken
+        --
+        updateState (symtable_insert_variable (b, Unit, UnitLiteral (), []))
+        --
+        updateState (add_current_scope_name "fun")
+        updateState (set_flag False)
+        --
+        (d_types, _, d) <- (do a <- params; return a) <|> (return ([], [], []))
+        e <- closeParenthesesToken
+        f <- colonToken
+        g <- types
+        --
+        updateState (symtable_update_variable_type (b, g)) -- TODO: 'g' is only the return type, add param types?
+        --
+        (h_type, h) <- block
+        --
+        let (Id func_name) = b
+        s <- getState; pos <- getPosition
+        type_check_with_msg (replace '%' [func_name] "In function '%' return: ") pos s check_eq h_type g
+        --
+        updateState (remove_current_scope_name)
+        updateState (set_flag True)
+        --
+        updateState (symtable_update_variable (b, dontChangeValue, d ++ [EndOfParamsToken] ++ h))
+        --
+        return ([a, b, c] ++ d ++ [e, f, g] ++ h)
+
+params :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
+params = do
+        a <- idToken
+        b <- colonToken
+        c <- types
+        --
+        s <- getState; pos <- getPosition
+        updateState (symtable_insert_variable (a, c, get_default_value pos s c, []))
+        --
+        (d_type, d_value, d) <- atrib_opt c
+        --
+        s' <- getState; pos' <- getPosition
+        let var_value = if d == [] then get_default_value pos' s' c else d_value
+        updateState (symtable_update_variable (a, var_value, dontChangeFunctionBody))
+        liftIO (putStrLn "params_declaration:")
+        print_state
+        --
+        (e_types, e_values, e) <- params_op
+        return (d_type:e_types, d_value:e_values, (a:b:[c]) ++ d ++ e)
+
+params_op :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
+params_op = (do
+            a <- commaToken
+            (b_types, b_values, b) <- params
+            return (b_types, b_values, (a:b))) <|> (return ([], [], []))
+
+struct_decl :: ParsecT [InfoAndToken] MyState IO [Token]
+struct_decl = do
+            a <- structToken
+            b <- idToken
+            --
+            updateState (symtable_insert_variable (b, Struct, StructLiteral [], []))
+            --
+            updateState (add_current_scope_name "struct")
+            --
+            c <- struct_block
+            --
+            s <- getState
+            let (Node _ struct_vars _) = search_scope_tree (get_current_scope_name s) (get_current_scope_tree s)
+            --
+            updateState (remove_current_scope_name)
+            --
+            updateState (symtable_update_variable (b, StructLiteral struct_vars, dontChangeFunctionBody))
+            --
+            d <- semiColonToken
+            return ((a:b:c) ++ [d])
+
+struct_block :: ParsecT [InfoAndToken] MyState IO [Token]
+struct_block = do
+              a <- openBracketsToken
+              b <- declarations_op
+              c <- closeBracketsToken
+              return ((a:b) ++ [c])
+
+----------------- Expressions -----------------
+
 exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 exp_rule = (do
            (a_type, a_value, a_body, a) <- term
@@ -256,6 +343,10 @@ exp_base = (do (a_type, a_value, a) <- uminus_remaining; return (a_type, a_value
             --
             return (TChar, new_value, c_body, (a:b:c) ++ [d]))
 
+term :: ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+term = (do (_type, value, a) <- literal; return (_type, value, noFuncBody, [a]))
+      <|> (do s <- getState; a <- struct_access_or_function_call (get_current_scope s); return a)
+
 struct_access_or_function_call :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access_or_function_call vars = do
       a <- idToken
@@ -292,10 +383,6 @@ struct_access' a vars = (do
       let (Id name) = a
       let (_, a_type, a_value, a_body) = lookup_var pos name s
       return (a_type, a_value, a_body, [a]))
-
-term :: ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
-term = (do (_type, value, a) <- literal; return (_type, value, noFuncBody, [a]))
-      <|> (do s <- getState; a <- struct_access_or_function_call (get_current_scope s); return a)
 
 function_call :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 function_call a = do
@@ -495,6 +582,8 @@ rel_op = (do a <- leqToken; return a)
     <|>  (do a <- greaterToken; return a)
     <|>  (do a <- differentToken; return a)
 
+----------------- Structures -----------------
+
 structures :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 structures = (do a <- if_rule; return a)
           <|> (do a <- for_rule; return a) 
@@ -623,14 +712,17 @@ repeat_rule = do
         updateState (add_current_scope_name "repeat")
         (b_type, b_value, _, b) <- exp_rule
         --
-        s <- getState; pos <- getPosition
         if isIntegral b_type then do
           --
           (c_type, c) <- block
+          -- Semantics
+          s <- getState
+          when (get_flag s) $ do parse_function "repeat" c s
           --
           updateState (remove_current_scope_name)
           return (c_type, (a:b) ++ c)
-        else
+        else do
+          pos <- getPosition
           error_msg "Expression in Repeat must be integral! Line: % Column: %" [showLine pos, showColumn pos]
 
 match_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
@@ -705,91 +797,6 @@ ids = (do a <- commaToken
           b <- idToken
           c <- ids
           return (a:b:c)) <|> (return [])
-
-fun_decl :: ParsecT [InfoAndToken] MyState IO [Token]
-fun_decl = do
-        a <- funToken
-        b <- idToken
-        c <- openParenthesesToken
-        --
-        updateState (symtable_insert_variable (b, Unit, UnitLiteral (), []))
-        --
-        updateState (add_current_scope_name "fun")
-        updateState (set_flag False)
-        --
-        (d_types, _, d) <- (do a <- params; return a) <|> (return ([], [], []))
-        e <- closeParenthesesToken
-        f <- colonToken
-        g <- types
-        --
-        updateState (symtable_update_variable_type (b, g)) -- TODO: 'g' is only the return type, add param types?
-        --
-        (h_type, h) <- block
-        --
-        let (Id func_name) = b
-        s <- getState; pos <- getPosition
-        type_check_with_msg (replace '%' [func_name] "In function '%' return: ") pos s check_eq h_type g
-        --
-        updateState (remove_current_scope_name)
-        updateState (set_flag True)
-        --
-        updateState (symtable_update_variable (b, dontChangeValue, d ++ [EndOfParamsToken] ++ h))
-        --
-        return ([a, b, c] ++ d ++ [e, f, g] ++ h)
-
-params :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
-params = do
-        a <- idToken
-        b <- colonToken
-        c <- types
-        --
-        s <- getState; pos <- getPosition
-        updateState (symtable_insert_variable (a, c, get_default_value pos s c, []))
-        --
-        (d_type, d_value, d) <- atrib_opt c
-        --
-        s' <- getState; pos' <- getPosition
-        let var_value = if d == [] then get_default_value pos' s' c else d_value
-        updateState (symtable_update_variable (a, var_value, dontChangeFunctionBody))
-        liftIO (putStrLn "params_declaration:")
-        print_state
-        --
-        (e_types, e_values, e) <- params_op
-        return (d_type:e_types, d_value:e_values, (a:b:[c]) ++ d ++ e)
-
-params_op :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
-params_op = (do
-            a <- commaToken
-            (b_types, b_values, b) <- params
-            return (b_types, b_values, (a:b))) <|> (return ([], [], []))
-
-struct_decl :: ParsecT [InfoAndToken] MyState IO [Token]
-struct_decl = do
-            a <- structToken
-            b <- idToken
-            --
-            updateState (symtable_insert_variable (b, Struct, StructLiteral [], []))
-            --
-            updateState (add_current_scope_name "struct")
-            --
-            c <- struct_block
-            --
-            s <- getState
-            let (Node _ struct_vars _) = search_scope_tree (get_current_scope_name s) (get_current_scope_tree s)
-            --
-            updateState (remove_current_scope_name)
-            --
-            updateState (symtable_update_variable (b, StructLiteral struct_vars, dontChangeFunctionBody))
-            --
-            d <- semiColonToken
-            return ((a:b:c) ++ [d])
-
-struct_block :: ParsecT [InfoAndToken] MyState IO [Token]
-struct_block = do
-              a <- openBracketsToken
-              b <- declarations_op
-              c <- closeBracketsToken
-              return ((a:b) ++ [c])
 
 ----------------- Others -----------------
 
