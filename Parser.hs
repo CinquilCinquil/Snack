@@ -711,7 +711,7 @@ while_rule = do
         (c_type, c) <- block
         updateState (set_flag $ get_flag s)
         -- Semantics
-        s' <- getState;
+        s' <- getState
         when ((get_flag s') && cond) $ do parse_structure "while" c s' b
         --
         updateState (remove_current_scope_name)
@@ -725,11 +725,22 @@ repeat_rule = do
         (b_type, b_value, _, b) <- exp_rule
         --
         if isIntegral b_type then do
+          -- hidden counter variable
+          updateState(symtable_insert_variable((Id "$i"), Int, (to_int b_value), []))
+          let (IntLiteral repetition_value) = (to_int b_value)
+          let cond = repetition_value > 0
+          let cond_exp = [(Id "$i"), Greater, IntLiteral 0]
           --
-          (c_type, c) <- block
-          -- Semantics
           s <- getState
-          --when (get_flag s) $ do parse_structure "repeat" c s
+          updateState (set_flag False)
+          (c_type, c) <- block
+          updateState (set_flag $ get_flag s)
+          -- Semantics
+          s' <- getState
+          when ((get_flag s') && cond) $ do
+            let increment_exp = [(Id "$i"), Assign ,(Id "$i"), Minus, IntLiteral 1, SemiColon]
+            let c' = (reverse $ tail $ reverse c) ++ increment_exp ++ [CloseBrackets]
+            parse_structure "repeat" c' s' cond_exp
           --
           updateState (remove_current_scope_name)
           return (c_type, (a:b) ++ c)
