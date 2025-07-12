@@ -42,6 +42,7 @@ tokens :-
   match                                 { \p _ -> (getLC p, Match) }
   with                                  { \p _ -> (getLC p, With) }
   form                                  { \p _ -> (getLC p, Form) }
+  ofForm                                { \p _ -> (getLC p, OfForm) }
   -- Operations / Relations
   "toInt"                               { \p _ -> (getLC p, ToIntToken) }
   "toFloat"                             { \p _ -> (getLC p, ToFloatToken) }
@@ -68,7 +69,6 @@ tokens :-
   fun                                   { \p _ -> (getLC p, Fun) }
   vars                                  { \p _ -> (getLC p, Vars) }
   -- Types
-  type                                  { \p s -> (getLC p, Type s) }
   nat                                   { \p _ -> (getLC p, Nat) }
   int                                   { \p _ -> (getLC p, Int) }
   string                                { \p _ -> (getLC p, TString) }
@@ -131,6 +131,7 @@ data Token =
   Match |
   With |
   Form |
+  OfForm |
   -- Operations / Relations
   ToIntToken |
   ToFloatToken |
@@ -157,7 +158,7 @@ data Token =
   Fun |
   Vars |
   -- Types
-  Type String |
+  Type String [Token] |
   Nat |
   Int |
   TString |
@@ -175,6 +176,7 @@ data Token =
   BoolLiteral Bool |
   UnitLiteral () |
   StructLiteral [(String, Token, Token, [Token])] | -- [(Name, Type, Value, FunctionBody)]
+  TypeLiteral String [Token] [Token] | -- Constructor name, args, params
   -- Others
   Id String |
   Return |

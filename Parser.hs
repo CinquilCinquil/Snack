@@ -17,13 +17,14 @@ program :: ParsecT [InfoAndToken] MyState IO ([Token])
 program = do
             --a <- importToken
             b <- typesToken -- types:
+            t <- type_declarations_op
             c <- declsToken -- declarations:
             d <- declarations_op
             e <- mainToken -- main:
             (_, f) <- stmts
             eof
             liftIO (putStrLn "---------\nParsing Complete: ")
-            return $ b:[c] ++ d ++ [e] ++ f
+            return $ (b:t) ++ [c] ++ d ++ [e] ++ f
 
 parse_block :: ParsecT [InfoAndToken] MyState IO (MyState, [Token])
 parse_block = do
@@ -36,6 +37,120 @@ parse_exp_rule = do
                 (a_type, a_value, a_body, a) <- exp_rule
                 s <- getState
                 return (a_type, a_value, a_body, a, s)
+
+----------------- Type Declarations -----------------
+
+type_declarations_op :: ParsecT [InfoAndToken] MyState IO [Token]
+type_declarations_op = (do
+                        a <- type_decl 
+                        b <- semiColonToken
+                        c <- type_declarations_op
+                        return (a ++ (b:c)))
+                        <|> return []
+
+type_decl :: ParsecT [InfoAndToken] MyState IO [Token]
+type_decl = do
+      a <- idToken
+      (type_params, b) <- type_params_rule
+      --
+      let (Id a_name) = a
+      updateState(symtable_insert_type a_name type_params)
+      --
+      c <- ofFormToken
+      (type_forms, d) <- forms_opt
+      --
+      updateState(symtable_update_type a_name type_forms)
+      liftIO (putStrLn "Type declaration: ")
+      print_state
+      --
+      return ((a:b) ++ (c:d))
+
+type_params_rule :: ParsecT [InfoAndToken] MyState IO ([Name], [Token])
+type_params_rule = (do
+      a <- smallerToken
+      b <- idsOpt
+      c <- greaterToken
+      --
+      let type_params = map (\(Id name) -> name) (filter (\x -> (not $ x == Comma)) b)
+      --
+      return (type_params, (a:b) ++ [c])) <|> return ([], [])
+
+forms_opt :: ParsecT [InfoAndToken] MyState IO ([TForm], [Token])
+forms_opt = (do a <- forms; return a) <|> (return ([], []))
+
+forms :: ParsecT [InfoAndToken] MyState IO ([TForm], [Token])
+forms = do
+      (a_type_form, a) <- form
+      (b_type_forms, b) <- formC_opt
+      return (a_type_form:b_type_forms, a ++ b)
+
+form :: ParsecT [InfoAndToken] MyState IO (TForm, [Token])
+form = do
+    a <- idToken
+    (type_forms, b) <- fpar
+    return (TForm (a, type_forms), a:b)
+
+formC_opt :: ParsecT [InfoAndToken] MyState IO ([TForm], [Token])
+formC_opt = (do
+          a <- commaToken
+          (type_forms, b) <- forms
+          return (type_forms, a:b)) <|> return ([], [])
+
+fpar :: ParsecT [InfoAndToken] MyState IO ([Name], [Token])
+fpar = (do
+        a <- openParenthesesToken
+        b <- idsOpt
+        c <- closeParenthesesToken
+        --
+        let type_forms = map (\(Id name) -> name) $ filter (not . \x -> x == Comma) b
+        --
+        return (type_forms, (a:b) ++ [c])) <|> return ([], [])
+
+type_id_rule :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+type_id_rule a = do
+    s <- getState
+    let (Id a_name) = a
+    b <- case lookup_type s a_name of -- TODO: This should be lookup constructor!!!!!
+              ("", _, _) -> fail ""
+              (type_name, type_params, type_args) -> do
+                (b_value, b_params_values, b) <- type_id_rule_remaining a_name type_args type_params
+                return (Type type_name b_params_values, b_value, noFuncBody, b)
+    return b
+
+-- Parses a TypeLiteral trying first the pattern: Constructor<X, Y, ...>...  -- (I call this params)
+-- Then, it tries: Constructor...(A, B, ...)  -- (I call this args)
+type_id_rule_remaining :: Name -> [TForm] -> [Name] -> ParsecT [InfoAndToken] MyState IO (Value, [MyType], [Token])
+type_id_rule_remaining constructor_name type_args type_params = do
+      if type_params == [] then do
+        (b_value, b) <- type_id_rule_remaining_args constructor_name type_args
+        return (b_value, [], (Id constructor_name):b)
+      else do
+        b <- smallerToken
+        (c_types, c_values, _, c) <- args_rule_opt
+        d <- greaterToken
+        -- Type check
+        s <- getState; pos <- getPosition
+        when (length (filter (not . (\x -> is_type_name pos s x)) c_values) > 0) $ error_msg "dame3" []
+        check_param_amount pos c_values type_params
+        --
+        (TypeLiteral _ arg_values _, e) <- type_id_rule_remaining_args constructor_name type_args
+        --
+        return (TypeLiteral constructor_name arg_values c_values, c_values, ((Id constructor_name):b:c) ++ (d:e))
+        
+type_id_rule_remaining_args :: Name -> [TForm] -> ParsecT [InfoAndToken] MyState IO (Value, [Token])
+type_id_rule_remaining_args constructor_name type_args = do
+        if type_args == [] then
+          return (TypeLiteral constructor_name [] [], [Id constructor_name])
+        else do
+          b <- openParenthesesToken
+          (c_types, c_values, _, c) <- args_rule_opt
+          d <- closeParenthesesToken
+          --
+          let get_type = \(TForm (_type, _)) -> _type
+          s <- getState; pos <- getPosition
+          check_types (type_check pos s check_eq) c_types (map get_type type_args)
+          --
+          return (TypeLiteral constructor_name c_values [], (b:c) ++ [d])
 
 ----------------- Declarations Functions and Globals -----------------
 
@@ -127,7 +242,7 @@ struct_attrib a = do
                 let (Id name) = a
                 let vars = case lookup_var pos name s of 
                             (_, _, StructLiteral vars, _) -> vars
-                            _ -> error_msg "dame5" []
+                            _ -> error_msg "Variable '%' is not a struct! Line: % Column: %" [name, showLine pos, showColumn pos]
                 --
                 (_, _, _, b_struct_tree) <- struct_access' a vars
                 --
@@ -356,7 +471,9 @@ term = (do (_type, value, a) <- literal; return (_type, value, noFuncBody, [a]))
 struct_access_or_function_call :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access_or_function_call vars = do
       a <- idToken
-      b <- (do (b_type, b_value, b) <- function_call a; return (b_type, b_value, noFuncBody, b)) <|> (struct_access' a vars)
+      b <- (do b <- type_id_rule a; return b)
+            <|> (do (b_type, b_value, b) <- function_call a; return (b_type, b_value, noFuncBody, b))
+            <|> (struct_access' a vars)
       return b
 
 struct_access :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
@@ -824,7 +941,7 @@ form_block id_token = do
             (c_type, c) <- form_blocks_opt id_token
             --
             s <- getState; pos <- getPosition
-            type_check_with_msg "In Match-Form return: " pos s check_eq b_type c_type
+            type_check_with_msg "In Match-TForm return: " pos s check_eq b_type c_type
             --
             return (c_type, (a:b) ++ c)
 
@@ -864,9 +981,14 @@ types =
   <|> (do a <- unitToken; return a)
   <|> (do
     (Id name) <- idToken
+    --
     s <- getState; pos <- getPosition
-    check_var_is_declared pos name s
-    return (Id name))
+    case lookup_type s name of
+      ("", _, _) -> do
+        check_var_is_struct pos name s
+        return (Id name)
+      (type_name, _, _) -> return $ Type type_name []
+    )
   <|> fail "Not a valid type"
 
 dontChangeFunctionBody = [NoneToken]

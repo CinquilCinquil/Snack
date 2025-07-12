@@ -46,6 +46,7 @@ repeatToken = tokenParser Repeat
 matchToken = tokenParser Match
 withToken = tokenParser With
 formToken = tokenParser Form
+ofFormToken = tokenParser OfForm
 
 -- Operations / Relations
 
@@ -81,7 +82,7 @@ varsToken = tokenParser Vars
 
 typeToken :: ParsecT [InfoAndToken] st IO (Token)
 typeToken = tokenPrim show update_pos get_token where
-  get_token (info, Type x) = Just (Type x)
+  get_token (info, Type x y) = Just (Type x y)
   get_token _       = Nothing
 
 natToken = tokenParser Nat

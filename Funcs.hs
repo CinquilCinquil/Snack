@@ -12,12 +12,12 @@ import Data.Char(digitToInt, isNumber, toLower, intToDigit)
 ----------------- Types
 ---------------------------------------------------
 
-type MyState = [(Variables, Stack, Types, Subprograms, PC, ScopeName, Bool)] -- (..., PC, Scope name, isRunning)
+type MyState = [(Variables, Stack, [TypeInfo], Subprograms, PC, ScopeName, Bool)] -- (..., PC, Scope name, isRunning)
 --
 type Variables = ScopeTree -- (Scope name, Variables)
 type Stack = [(Name, PC, Value)]
-type Types = [(Name, [Form])]
-type Subprograms = [(Name, MyType, Args, Int)] -- (Name, return _type, arguments, start line)
+type TypeInfo = (Name, [Name], [TForm]) -- Name, Params, Forms
+type Subprograms = [(Name, MyType, [Var], Int)] -- (Name, return _type, arguments, start line)
 type PC = Int
 type ScopeName = [String]
 --
@@ -30,8 +30,7 @@ type Var = (Name, MyType, Value, FunctionBody)
 type FunctionBody = [Token]
 type Value = Token
 type MyType = Token
-type Form = (Name, Args)
-type Args = ()
+data TForm = TForm (Token, [Name]) deriving(Eq, Show)
 
 ---------------------------------------------------
 ----------------- Functions for the symbol table
@@ -90,7 +89,19 @@ load_params [] [] [] [] s = s
 load_params (x:xs) (y:ys) (z:zs) (w:ws) s = load_params xs ys zs ws (symtable_insert_variable (Id x, y, z, w) s)
 
 add_call_to_stack :: Name -> MyState -> MyState
-add_call_to_stack func_name [(vars, sk, ts, sp, pc, sn, flag)] = [(vars, (func_name, 0, StringLiteral "c"):sk, ts, sp, pc, sn, flag)]
+add_call_to_stack func_name [(vars, sk, ts, sp, pc, sn, flag)] = [(vars, (func_name, 0, UnitLiteral ()):sk, ts, sp, pc, sn, flag)]
+
+-- wrapper for symtable_insert_type'
+symtable_insert_type :: Name -> [Name] -> MyState -> MyState
+symtable_insert_type type_name type_params [(vars, sk, ts, sp, pc, sn, flag)] = 
+  [(vars, sk, symtable_insert_type' ts type_name type_params, sp, pc, sn, flag)]
+
+symtable_insert_type' :: [TypeInfo] -> Name -> [Name] -> [TypeInfo]
+symtable_insert_type' [] type_name type_params = [(type_name, type_params, [])]
+symtable_insert_type' (x:xs) type_name type_params = do
+  let (namex, _, _) = x
+  if namex == type_name then error_msg "Type '%' already declared!" [type_name]
+  else (x:symtable_insert_type' xs type_name type_params)
 
 ----------------- Search -----------------
 
@@ -139,6 +150,22 @@ check_var_is_declared :: SourcePos -> Name -> MyState -> ParsecT [InfoAndToken] 
 check_var_is_declared pos var_name s = do
   let x = lookup_var pos var_name s -- WARNING: might be ignored due to lazy-eval
   return ()
+
+check_var_is_struct :: SourcePos -> Name -> MyState -> ParsecT [InfoAndToken] MyState IO ()
+check_var_is_struct pos var_name s = do
+  case lookup_var pos var_name s of
+    (_, _, StructLiteral _, _) -> return ()
+    (name, _, _, _) -> error_msg "Variable '%' is not a struct! Line: % Column: %" [name, showLine pos, showColumn pos]
+
+-- wrapper for lookup_type'
+lookup_type :: MyState -> Name -> TypeInfo
+lookup_type [(vars, sk, ts, sp, pc, scope_name, flag)] type_name = lookup_type' ts type_name
+
+lookup_type' :: [TypeInfo] -> Name -> TypeInfo
+lookup_type' [] _ = ("", [], [])
+lookup_type' (x:xs) type_name = do
+  let (namex, _, _) = x
+  if namex == type_name then x else lookup_type' xs type_name
 
 ----------------- Update -------------------
 
@@ -222,6 +249,19 @@ var_is_attrb_of_struct :: [Var] -> Name -> Bool
 var_is_attrb_of_struct [] _ = False
 var_is_attrb_of_struct ((varx_name, _, _, _):varxs) name = if varx_name == name then True else var_is_attrb_of_struct varxs name
 
+-- wrapper for symtable_update_type'
+symtable_update_type :: Name -> [TForm] -> MyState -> MyState
+symtable_update_type type_name forms [(vars, sk, ts, sp, pc, sn, flag)] = 
+  [(vars, sk, symtable_update_type' ts type_name forms, sp, pc, sn, flag)] 
+  
+symtable_update_type' :: [TypeInfo] -> Name -> [TForm] -> [TypeInfo]
+symtable_update_type' [] _ _ = error_msg "dame6" []
+symtable_update_type' (x:xs) type_name forms = do
+  let (namex, params, _) = x
+  if (namex == type_name) then do
+    ((type_name, params, forms):xs) -- TODO: check if names on forms are valid!
+  else (x:symtable_update_type' xs type_name forms)
+
 ----------------- Remove -------------------
 
 remove_current_scope_name :: MyState -> MyState
@@ -272,7 +312,12 @@ get_default_value _ _ Unit = UnitLiteral ()
 get_default_value pos s (Id name) = do
   let (_, _, attrbs, _) = lookup_var pos name s
   attrbs
---get_default_value pos s (Type _) = ...
+get_default_value pos s (Type type_name type_params) = 
+  case lookup_type s type_name of
+    ("", _, _) -> error_msg "damee" []
+    (_, _, type_forms) -> do
+      let (TForm (Id constructor_name, _)) = (head type_forms)
+      TypeLiteral constructor_name [] [] -- TODO: this is temporary
 
 -- gets function code and returns: params, param types, function body
 get_params :: [Token] -> ([Name], [Token], [Token])
@@ -290,7 +335,7 @@ get_params _ = error_msg "Invalid params in function call! Error #2" []
 check_param_amount :: SourcePos -> [a] -> [b] -> ParsecT [InfoAndToken] MyState IO ()
 check_param_amount pos a b = if (length a) == (length b)
   then return ()
-  else error_msg "Wrong number of arguments in function call! Line: % Column: %" [showLine pos, showColumn pos]
+  else error_msg "Wrong number of arguments in function call or type constructor! Line: % Column: %" [showLine pos, showColumn pos]
 
 -- wrapper for type_check'
 -- pos -> State -> type checking function -> type or identifier token -> type or identifier token -> ...
@@ -489,14 +534,29 @@ to_char (StringLiteral x) = do
   if length x == 1 then CharLiteral (head x) else error_msg "Invalid conversion of '%' to Char" [x] 
 
 get_literal :: MyType -> Value -> Token
---get_literal Nat v = NatLiteral (to_nat v)
+--get_literal Nat v = to_nat v
 get_literal Int v = to_int v
 get_literal Float v = to_float v
 get_literal TBool v = to_bool v
 get_literal TChar v = to_char v
 get_literal TString v = to_string v
+get_literal Unit _ = UnitLiteral ()
 
 -- TODO: to_nat
+
+is_type_name :: SourcePos -> MyState -> Value -> Bool
+is_type_name _ _ Nat = True
+is_type_name _ _ Int = True
+is_type_name _ _ Float = True
+is_type_name _ _ TBool = True
+is_type_name _ _ TChar = True
+is_type_name _ _ TString = True
+is_type_name _ _ Unit = True
+is_type_name pos s (Id name) =
+  case lookup_type s name of
+    ("", _, _) -> error_msg "dame4" [] -- TODO: usar o pos
+    _ -> True
+
 
 ----------------- Others -----------------
 
