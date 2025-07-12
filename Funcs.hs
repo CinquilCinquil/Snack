@@ -488,6 +488,14 @@ to_char (CharLiteral x) = CharLiteral x
 to_char (StringLiteral x) = do
   if length x == 1 then CharLiteral (head x) else error_msg "Invalid conversion of '%' to Char" [x] 
 
+get_literal :: MyType -> Value -> Token
+--get_literal Nat v = NatLiteral (to_nat v)
+get_literal Int v = to_int v
+get_literal Float v = to_float v
+get_literal TBool v = to_bool v
+get_literal TChar v = to_char v
+get_literal TString v = to_string v
+
 -- TODO: to_nat
 
 ----------------- Others -----------------

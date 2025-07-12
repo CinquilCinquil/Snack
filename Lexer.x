@@ -33,7 +33,7 @@ tokens :-
   then                                  { \p _ -> (getLC p, Then) }
   else                                  { \p _ -> (getLC p, Else) }
   for                                   { \p _ -> (getLC p, For) }
-  do                                    { \p _ -> (getLC p, Do) }
+  step                                  { \p _ -> (getLC p, Step) }
   in                                    { \p _ -> (getLC p, In) }
   while                                 { \p _ -> (getLC p, While) }
   switch                                { \p _ -> (getLC p, Switch) }
@@ -122,7 +122,7 @@ data Token =
   Then |
   Else |
   For |
-  Do |
+  Step |
   In |
   While |
   Switch |

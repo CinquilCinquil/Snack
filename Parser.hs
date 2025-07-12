@@ -643,45 +643,60 @@ else_op = (do
 
 for_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 for_rule = do
-        a <- forToken
-        --
-        updateState (add_current_scope_name "for")
-        (b_type, b) <- for_declaration
-        c <- inToken
-        (d_type, d) <- range_rule
-        --
-        s <- getState; pos <- getPosition
-        type_check pos s check_eq b_type d_type
-        --
-        (e_type, e) <- block
-        --
-        updateState (remove_current_scope_name)
-        return (e_type, (a:b) ++ b ++ [c] ++ d ++ e)
+    -- Initial structure. Ex: for i : int in [1..2] step 1
+    a <- forToken
+    --
+    updateState (add_current_scope_name "for")
+    --
+    (b_type, b) <- for_declaration
+    c <- inToken
+    (d_type, (start_value, end_value, cond_op), d) <- range_rule
+    e <- stepToken
+    (f_type, f_value, _, f) <- exp_rule -- WARNING: step semantics is executed even if the block isn't
+    -- Type check
+    s <- getState; pos <- getPosition
+    type_check pos s check_eq b_type d_type
+    type_check pos s check_eq b_type f_type
+    -- Block
+    updateState (set_flag False)
+    (g_type, g) <- block
+    updateState (set_flag $ get_flag s)
+    -- Semantics
+    -- dealing with a left-open interval
+    let start_value_increment = (if (head d) == OpenSquareBrackets then (get_literal b_type (IntLiteral 0)) else f_value)
+    let start_value' = doOpOnTokens start_value start_value_increment Sum
+    let (BoolLiteral cond) = doOpOnTokens start_value' end_value cond_op
+    let (Id counter_name) = (head b)
+    let cond_exp = [Id counter_name, cond_op, (get_literal b_type end_value)]
+    s' <- getState
+    when ((get_flag s') && cond) $ do
+      -- initializing counter
+      updateState(symtable_update_variable (Id counter_name, start_value', dontChangeFunctionBody))
+      --
+      s'' <- getState
+      let increment_exp = [Id counter_name, Assign, Id counter_name, Sum, f_value, SemiColon]
+      let g' = (reverse $ tail $ reverse g) ++ increment_exp ++ [CloseBrackets]
+      parse_structure "for" g' s'' cond_exp
+    --
+    updateState (remove_current_scope_name)
+    return (g_type, (a:b) ++ b ++ [c] ++ d ++ (e:f) ++ g)
 
-range_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+-- TODO: put a step option
+range_rule :: ParsecT [InfoAndToken] MyState IO (MyType, (Value, Value, Token), [Token])
 range_rule = (do -- Range with brackets
-          a <- openSquareBracketsToken
+          a <- openSquareBracketsToken <|> openParenthesesToken
           (b_type, b_value, _, b) <- exp_rule
           c <- twoDotsToken
           (d_type, d_value, _, d) <- exp_rule
-          e <- closeSquareBracketsToken
+          e <- closeSquareBracketsToken <|> closeParenthesesToken
           --
           s <- getState; pos <- getPosition
           type_check pos s check_eq b_type d_type
+          when (not $ isArithm b_type) $ do error_msg "Range values must be Arithmetic! Line: % Column: %" [showLine pos, showColumn pos]
           --
-          return (d_type, [a] ++ b ++ [c] ++ d ++ [e]))
-          <|> -- Range with parantheses
-          (do
-          a <- openParenthesesToken
-          (b_type, b_value, _, b) <- exp_rule
-          c <- twoDotsToken
-          (d_type, d_value, _, d) <- exp_rule
-          e <- closeParenthesesToken
-          --
-          s <- getState; pos <- getPosition
-          type_check pos s check_eq b_type d_type
-          --
-          return (d_type, [a] ++ b ++ [c] ++ d ++ [e]))
+          let op = if e == CloseSquareBrackets then Leq else Smaller
+          return (d_type, (b_value, d_value, op), [a] ++ b ++ [c] ++ d ++ [e]))
+          -- <|> TODO-OPTIONAL: a 'for-each' range like a list of elements
 
 for_declaration :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 for_declaration = do
@@ -698,19 +713,21 @@ for_declaration = do
 
 while_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 while_rule = do
+        -- Initial structure. Ex: While i > 0
         a <- whileToken
         --
         updateState (add_current_scope_name "while")
-        (b_type, b_value, _, b) <- exp_rule
         --
+        (b_type, b_value, _, b) <- exp_rule
+        -- Type check
         s <- getState; pos <- getPosition
         type_check pos s check_eq b_type TBool
-        let (BoolLiteral cond) = b_value
-        --
+        -- Block
         updateState (set_flag False)
         (c_type, c) <- block
         updateState (set_flag $ get_flag s)
         -- Semantics
+        let (BoolLiteral cond) = b_value
         s' <- getState
         when ((get_flag s') && cond) $ do parse_structure "while" c s' b
         --
@@ -725,20 +742,19 @@ repeat_rule = do
         (b_type, b_value, _, b) <- exp_rule
         --
         if isIntegral b_type then do
-          -- hidden counter variable
-          updateState(symtable_insert_variable((Id "$i"), Int, (to_int b_value), []))
-          let (IntLiteral repetition_value) = (to_int b_value)
-          let cond = repetition_value > 0
-          let cond_exp = [(Id "$i"), Greater, IntLiteral 0]
-          --
+          -- Block
           s <- getState
           updateState (set_flag False)
           (c_type, c) <- block
           updateState (set_flag $ get_flag s)
           -- Semantics
+          updateState(symtable_insert_variable(Id "$i", Int, (to_int b_value), [])) -- hidden counter variable
+          let (IntLiteral repetition_value) = (to_int b_value)
+          let cond = repetition_value > 0
+          let cond_exp = [Id "$i", Greater, IntLiteral 0]
           s' <- getState
           when ((get_flag s') && cond) $ do
-            let increment_exp = [(Id "$i"), Assign ,(Id "$i"), Minus, IntLiteral 1, SemiColon]
+            let increment_exp = [Id "$i", Assign, Id "$i", Minus, IntLiteral 1, SemiColon]
             let c' = (reverse $ tail $ reverse c) ++ increment_exp ++ [CloseBrackets]
             parse_structure "repeat" c' s' cond_exp
           --
