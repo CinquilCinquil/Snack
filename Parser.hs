@@ -22,14 +22,20 @@ program = do
             e <- mainToken -- main:
             (_, f) <- stmts
             eof
-            liftIO (putStrLn "\nParsing Complete: ")
+            liftIO (putStrLn "---------\nParsing Complete: ")
             return $ b:[c] ++ d ++ [e] ++ f
 
-parse_func :: ParsecT [InfoAndToken] MyState IO (MyState, [Token])
-parse_func = do
+parse_block :: ParsecT [InfoAndToken] MyState IO (MyState, [Token])
+parse_block = do
             (h_type, h) <- block
             s <- getState
             return (s, h)
+  
+parse_exp_rule :: ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token], MyState)
+parse_exp_rule = do
+                (a_type, a_value, a_body, a) <- exp_rule
+                s <- getState
+                return (a_type, a_value, a_body, a, s)
 
 ----------------- Declarations Functions and Globals -----------------
 
@@ -699,8 +705,14 @@ while_rule = do
         --
         s <- getState; pos <- getPosition
         type_check pos s check_eq b_type TBool
+        let (BoolLiteral cond) = b_value
         --
+        updateState (set_flag False)
         (c_type, c) <- block
+        updateState (set_flag $ get_flag s)
+        -- Semantics
+        s' <- getState;
+        when ((get_flag s') && cond) $ do parse_structure "while" c s' b
         --
         updateState (remove_current_scope_name)
         return (c_type, (a:b) ++ c)
@@ -717,7 +729,7 @@ repeat_rule = do
           (c_type, c) <- block
           -- Semantics
           s <- getState
-          when (get_flag s) $ do parse_function "repeat" c s
+          --when (get_flag s) $ do parse_structure "repeat" c s
           --
           updateState (remove_current_scope_name)
           return (c_type, (a:b) ++ c)
@@ -843,14 +855,31 @@ defaultValue = StringLiteral "Default Value"
 
 parse_function :: Name -> [Token] -> MyState -> ParsecT [InfoAndToken] MyState IO ()
 parse_function func_name func_body s = do
-  result <- liftIO (runParserT parse_func s (replace '%' [func_name] "Parsing error inside '%' call!") (to_infoAndToken func_body))
+  result <- liftIO (runParserT parse_block s (replace '%' [func_name] "Parsing error inside '%' call!") (to_infoAndToken func_body))
   let new_state = case result of
                 Left err -> error (show err)
                 Right (new_state, ans) -> new_state
   updateState(\s -> new_state)
   return ()
 
--- IO (Either ParseError [Token])
+parse_structure :: Name -> [Token] -> MyState -> [Token] -> ParsecT [InfoAndToken] MyState IO ()
+parse_structure structure_name structure_body s cond_exp = do
+  -- Parsing structure body
+  result <- liftIO (runParserT parse_block s (replace '%' [structure_name] "Parsing error inside '%'!") (to_infoAndToken structure_body))
+  let new_state = case result of
+                Left err -> error (show err)
+                Right (new_state, ans) -> new_state
+  updateState(\s -> new_state)
+  -- Parsing conditional expression
+  result' <- liftIO (runParserT parse_exp_rule new_state (replace '%' [structure_name] "Parsing error in '%' conditional expression!") (to_infoAndToken cond_exp))
+  let (new_state', BoolLiteral cond_value) = case result' of
+                                    Left err -> error (show err)
+                                    Right (_, exp_value, _, _, new_state') -> (new_state', exp_value)
+  updateState(\s -> new_state')
+  -- Recursive call
+  when cond_value $ do parse_structure structure_name structure_body new_state' cond_exp
+  --
+  return ()
 
 main :: IO ()
 main = do
