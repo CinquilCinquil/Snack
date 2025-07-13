@@ -39,8 +39,7 @@ parse_exp_rule = do
                 return (a_type, a_value, a_body, a, s)
 
 ----------------- Type Declarations -----------------
-
--- TODO: check if user created type correctly (like not inserting literals and stuff)
+-- WARNING: there is alot of mixed usage of 'name' or '(Id name)'. Don't think too much about it.
 
 type_declarations_op :: ParsecT [InfoAndToken] MyState IO [Token]
 type_declarations_op = (do
@@ -59,7 +58,7 @@ type_decl = do
       updateState(symtable_insert_type a_name type_params)
       --
       c <- ofFormToken
-      (type_forms, d) <- forms_opt
+      (type_forms, d) <- forms_opt type_params
       --
       updateState(symtable_update_type a_name type_forms)
       liftIO (putStrLn "Type declaration: ")
@@ -77,29 +76,29 @@ type_params_rule = (do
       --
       return (type_params, (a:b) ++ [c])) <|> return ([], [])
 
-forms_opt :: ParsecT [InfoAndToken] MyState IO ([TForm], [Token])
-forms_opt = (do a <- forms; return a) <|> (return ([], []))
+forms_opt :: [Name] -> ParsecT [InfoAndToken] MyState IO ([TForm], [Token])
+forms_opt type_params = (do a <- forms type_params; return a) <|> (return ([], []))
 
-forms :: ParsecT [InfoAndToken] MyState IO ([TForm], [Token])
-forms = do
-      (a_type_form, a) <- form
-      (b_type_forms, b) <- formC_opt
+forms :: [Name] -> ParsecT [InfoAndToken] MyState IO ([TForm], [Token])
+forms type_params = do
+      (a_type_form, a) <- form type_params
+      (b_type_forms, b) <- formC_opt type_params
       return (a_type_form:b_type_forms, a ++ b)
 
-form :: ParsecT [InfoAndToken] MyState IO (TForm, [Token])
-form = do
+form :: [Name] -> ParsecT [InfoAndToken] MyState IO (TForm, [Token])
+form type_params = do
     a <- idToken
-    (type_forms, b) <- fpar
+    (type_forms, b) <- fpar type_params
     return (TForm (a, type_forms), a:b)
 
-formC_opt :: ParsecT [InfoAndToken] MyState IO ([TForm], [Token])
-formC_opt = (do
+formC_opt :: [Name] -> ParsecT [InfoAndToken] MyState IO ([TForm], [Token])
+formC_opt type_params = (do
           a <- commaToken
-          (type_forms, b) <- forms
+          (type_forms, b) <- forms type_params
           return (type_forms, a:b)) <|> return ([], [])
 
-fpar :: ParsecT [InfoAndToken] MyState IO ([Token], [Token])
-fpar = (do
+fpar :: [Name] -> ParsecT [InfoAndToken] MyState IO ([Token], [Token])
+fpar type_params = (do
         a <- openParenthesesToken
         b <- idsAndTypesOpt
         c <- closeParenthesesToken
@@ -107,9 +106,9 @@ fpar = (do
         let type_forms = filter (not . \x -> x == Comma) b
         -- Type check
         let is_type_id x = case x of
-                            (Id _) -> True
+                            (Id name) -> not $ name `is_in_list` type_params
                             _ -> False
-        let type_form_ids = filter is_type_id type_forms
+        let type_form_ids = filter (is_type_id) type_forms
         s <- getState; pos <- getPosition
         check_types_are_declared pos s (map (\(Id x) -> x) type_form_ids)
         --
@@ -127,28 +126,46 @@ type_cons_rule a = do
                 return (Type type_name b_params_values, b_value, noFuncBody, b)
     return b
 
--- Parses a TypeLiteral trying first the pattern: Constructor<X, Y, ...>...  -- (I call this params)
--- Then, it tries: Constructor...(A, B, ...)  -- (I call this args)
+--- Example of a type declaration:  myTree<X> ofForm Branch(myTree, myTree), Node(X);
+--- Example of a type member usage:  tree : myTree<int> := Branch(Node<int>(1), Node<int>(2));
+---------- Dictionary:
+-----
+----- Params (or params) is this: <X, Y, ...>
+-- Only type names allowed in there.
+----- Arguments (or args) is this: (A, B, ...)
+-- Only literals or constructors allowed in there.
+-----
+----- constructor_name are the arguments defined at the type declaration, they are tokens.
+----- type_params are the parameters defined at the type declaration, they are just names like X or Y.
+-----
+----- arg_values are actual arguments passed in a constructor in the code, they are tokens.
+----- type_params_values are the actual parameters passed in a constructor in the code, they are tokens.
+
+-- Parses a TypeLiteral trying first the Params and then the Args
 type_cons_rule_remaining :: Name -> [MyType] -> [Name] -> ParsecT [InfoAndToken] MyState IO (Value, [MyType], [Token])
 type_cons_rule_remaining constructor_name constructor_args type_params = do
-      if type_params == [] then do
-        (b_value, b) <- type_cons_args constructor_name constructor_args type_params
-        return (b_value, [], (Id constructor_name):b)
-      else do
-        b <- smallerToken
-        (c_types, c_values, _, c) <- args_rule_opt
-        d <- greaterToken
-        -- Type check
-        s <- getState; pos <- getPosition
-        when (length (filter (not . (\x -> is_type_name pos s x)) c_values) > 0) $ error_msg "dame3" []
-        check_param_amount pos c_values type_params
-        --
-        (TypeLiteral _ arg_values _, e) <- type_cons_args constructor_name constructor_args type_params
-        --
-        return (TypeLiteral constructor_name arg_values c_values, c_values, ((Id constructor_name):b:c) ++ (d:e))
+  if type_params == [] then do
+    (b_value, b) <- type_cons_args constructor_name constructor_args type_params []
+    return (b_value, [], (Id constructor_name):b)
+  else do
+    b <- smallerToken -- '<'
+    c <- idsAndTypesOpt
+    d <- greaterToken -- '>'
+    --
+    let type_params_values = filter (not . \x -> x == Comma) c -- removing commas 
+    -- Type check
+    s <- getState; pos <- getPosition
+    let non_type_names = filter (not . (\x -> is_type_name pos s x)) type_params_values -- removing names that don't refer to types
+    when (length non_type_names > 0) $ do
+      error_msg "Non-Type in parameters of '%' ! Line: % Column: %" [constructor_name, showLine pos, showColumn pos]
+    check_param_amount pos type_params_values type_params
+    --
+    (TypeLiteral _ arg_values _, e) <- type_cons_args constructor_name constructor_args type_params type_params_values
+    --
+    return (TypeLiteral constructor_name arg_values type_params_values, type_params_values, ((Id constructor_name):b:c) ++ (d:e))
         
-type_cons_args :: Name -> [MyType] -> [Name] -> ParsecT [InfoAndToken] MyState IO (Value, [Token])
-type_cons_args constructor_name constructor_args type_params = do
+type_cons_args :: Name -> [MyType] -> [Name] -> [MyType] -> ParsecT [InfoAndToken] MyState IO (Value, [Token])
+type_cons_args constructor_name constructor_args type_params type_params_values = do
         if constructor_args == [] then
           return (TypeLiteral constructor_name [] [], [Id constructor_name])
         else do
@@ -156,12 +173,12 @@ type_cons_args constructor_name constructor_args type_params = do
           (c_types, c_values, _, c) <- args_rule_opt
           d <- closeParenthesesToken
           -- Type check
+          liftIO (print c_types)
           s <- getState; pos <- getPosition
-          let get_type x = case x of
-                            (Id type_name) -> Type type_name (map (\t -> Id t) type_params)
-                            base_type -> base_type
           check_param_amount pos c_types constructor_args
-          check_types (type_check pos s check_eq) c_types (map get_type constructor_args)
+          check_param_amount pos type_params_values type_params
+          check_types (type_check pos s check_eq) c_types (get_cons_arg_types constructor_args type_params type_params_values)
+          liftIO (print c_values)
           --
           return (TypeLiteral constructor_name c_values [], (b:c) ++ [d])
 
@@ -1008,10 +1025,26 @@ types =
     --
     s <- getState; pos <- getPosition
     case lookup_type s name of
-      ("", _, _) -> do
+      ("", _, _) -> do -- Case: This is a struct
         check_var_is_struct pos name s
         return (Id name)
-      (type_name, _, _) -> return $ Type type_name []
+      (type_name, type_params, _) -> do -- Case: This a type name
+        if type_params == [] then return $ Type type_name [] -- Case: This type doesn't have parameters
+        else do -- Case: This type has parameters
+          b <- smallerToken -- '<'
+          c <- idsAndTypesOpt
+          d <- greaterToken -- '>'
+          --
+          let type_params_values = filter (not . \x -> x == Comma) c -- removing commas 
+          -- Type Check
+          s <- getState; pos <- getPosition
+          -- removing names that don't refer to types
+          let non_type_names = filter (not . (\x -> is_type_name pos s x)) type_params_values
+          when (length non_type_names > 0) $ do
+            error_msg "Non-Type in parameters of '%' ! Line: % Column: %" [name, showLine pos, showColumn pos]
+          check_param_amount pos type_params_values type_params
+          --
+          return $ Type type_name type_params_values
     )
   <|> fail "Not a valid type"
 

@@ -485,6 +485,7 @@ doUnaryOpBoolean :: Bool -> Token -> Bool
 doUnaryOpBoolean x Not = not x
 
 showLiteral :: Token -> String
+showLiteral (Id x) = x
 showLiteral (NatLiteral x) = show x
 showLiteral (IntLiteral x) = show x
 showLiteral (FloatLiteral x) = show x
@@ -493,8 +494,8 @@ showLiteral (StringLiteral x) = show x
 showLiteral (CharLiteral x) = show x
 showLiteral (UnitLiteral x) = show x
 showLiteral (TypeLiteral cons_name args params) = do
-  let params_str = foldl (++) "" $ map (\(Id s) -> s ++ ", ") params
-  let args_str = foldl (++) "" $ map (\s -> (showLiteral s ++ ", ")) args
+  let params_str = foldl (++) "" $ map (\s -> showLiteral s ++ ", ") params
+  let args_str = foldl (++) "" $ map (\s -> showLiteral s ++ ", ") args
   cons_name ++ "<" ++ params_str ++ ">(" ++ args_str ++ ")"
 showLiteral NoneToken = "No Value"
 showLiteral x = show x
@@ -586,6 +587,20 @@ is_type_name pos s (Id name) =
     ("", _, _) -> error_msg "dame4" [] -- TODO: usar o pos
     _ -> True
 
+-- cons args -> params -> params values -> arg types
+get_cons_arg_types :: [MyType] -> [Name] -> [MyType] -> [MyType]
+get_cons_arg_types [] [] [] = []
+get_cons_arg_types [] _ _ = error_msg "Insufficient type parameters!" [] -- TODO: put pos
+get_cons_arg_types (x:xs) (y:ys) (z:zs) = do
+  case x of 
+    (Id type_name) -> do
+      if type_name `is_in_list` (y:ys)
+      -- case: Type parameter
+      then z : (get_cons_arg_types xs ys zs)
+      -- case: User created type name
+      else (Type type_name (map (\t -> Id t) (y:ys))) : (get_cons_arg_types xs (y:ys) (z:zs))
+    -- case: Primitive type
+    primitive -> primitive : (get_cons_arg_types xs (y:ys) (z:zs))
 
 ----------------- Others -----------------
 
@@ -616,3 +631,7 @@ check_types f (x:xs) (y:ys) = do
 
 to_infoAndToken :: [Token] -> [InfoAndToken]
 to_infoAndToken xs = map (\s -> ((0, 0), s)) xs
+
+is_in_list x list_ = case list_ of
+                      [] -> False
+                      (e:ls) -> x == e || is_in_list x ls
