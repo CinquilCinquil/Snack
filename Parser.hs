@@ -199,7 +199,10 @@ declaration = (do
 decl_or_atrib_or_access_or_call :: ParsecT [InfoAndToken] MyState IO ([Token])
 decl_or_atrib_or_access_or_call = do
                           a <- idToken
-                          b <- decl_or_atrib a <|> struct_attrib a <|> (do (_, _, b) <- function_call a; c <- semiColonToken; return (b ++ [c]))
+                          b <- decl_or_atrib a 
+                                <|> array_attrib a
+                                <|> struct_attrib a 
+                                <|> (do (_, _, b) <- function_call a; c <- semiColonToken; return (b ++ [c]))
                           return b
 
 decl_or_atrib :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
@@ -260,6 +263,48 @@ struct_attrib a = do
                 print_state
                 --
                 return (b_struct_tree ++ [c] ++ d ++ [e])
+
+array_attrib :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
+array_attrib a = do
+    s <- getState; pos <- getPosition
+    let (Id a_name) = a
+    case lookup_var pos a_name s of
+      (_, Matrix t dim, a_value, _) -> do
+        (coords, b) <- array_attrib_recursive dim
+        let remaining_dim = reverse $ drop (length coords) (reverse dim)
+        let matrix_type = if (length remaining_dim) == 0 then t else Matrix t (remaining_dim)
+        --
+        c <- assignToken
+        (d_type, d_value, _, d) <- exp_rule
+        e <- semiColonToken
+        -- Type check
+        pos' <- getPosition
+        type_check pos' s check_eq matrix_type d_type
+        --
+        let new_matrix_value = update_matrix_value pos' a_value coords d_value
+        updateState(symtable_update_variable (a, new_matrix_value, dontChangeFunctionBody))
+        --
+        return ((a:b) ++ (c:d) ++ [e])
+      _ -> error_msg "Variable '%' is not a matrix or a list! Line: % Column: %" [showLine pos, showColumn pos]
+
+array_attrib_recursive :: [Int] -> ParsecT [InfoAndToken] MyState IO ([Int], [Token])
+array_attrib_recursive [] = (do
+  b <- openSquareBracketsToken
+  pos <- getPosition
+  error_msg "Index out of bounds! Error #14. Line: % Column: %" [showLine pos, showColumn pos])
+  <|> return ([], [])
+array_attrib_recursive (_:dims) = do
+    b <- openSquareBracketsToken
+    (c_type, c_value, c_body, c) <- exp_rule
+    d <- closeSquareBracketsToken
+    -- Type check
+    s <- getState; pos <- getPosition
+    type_check pos s check_eq c_type Int
+    --
+    let (IntLiteral coord) = c_value
+    (coords, e) <- (array_attrib_recursive dims) <|> return ([], [])
+    --
+    return (coord:coords, (b:c) ++ (d:e))
 
 stmts :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 stmts = do
@@ -520,7 +565,7 @@ array_access a = do
   s <- getState; pos <- getPosition
   let (Id a_name) = a
   case lookup_var pos a_name s of
-    (_, _, ErrorToken, _) -> error_msg "Variable '%' is not declared! Line: % Column: %" [a_name, showLine pos, showColumn pos]
+    --(_, _, ErrorToken, _) -> error_msg "Variable '%' is not declared! Line: % Column: %" [a_name, showLine pos, showColumn pos]
     (a_name, a_type, a_value, _) -> do
       case a_type of
         (Matrix _ dim) -> do
