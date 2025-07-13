@@ -158,7 +158,7 @@ data Token =
   Fun |
   Vars |
   -- Types
-  Type String [Token] |
+  Type String [Token] | -- Name, Params
   Nat |
   Int |
   TString |

@@ -30,7 +30,7 @@ type Var = (Name, MyType, Value, FunctionBody)
 type FunctionBody = [Token]
 type Value = Token
 type MyType = Token
-data TForm = TForm (Token, [Name]) deriving(Eq, Show)
+data TForm = TForm (Token, [MyType]) deriving(Eq, Show)
 
 ---------------------------------------------------
 ----------------- Functions for the symbol table
@@ -166,6 +166,24 @@ lookup_type' [] _ = ("", [], [])
 lookup_type' (x:xs) type_name = do
   let (namex, _, _) = x
   if namex == type_name then x else lookup_type' xs type_name
+
+-- wrapper for lookup_type_constructor'
+lookup_type_constructor :: MyState -> Name -> (Name, [Name], [MyType])
+lookup_type_constructor [(vars, sk, ts, sp, pc, scope_name, flag)] cons_name = lookup_type_constructor' ts cons_name
+
+lookup_type_constructor' :: [TypeInfo] -> Name -> (Name, [Name], [MyType])
+lookup_type_constructor' [] _ = ("", [], [])
+lookup_type_constructor' (x:xs) cons_name = do
+  let (namex, paramsx, formsx) = x
+  case cons_name `is_form_of` formsx of
+    ("", _) -> lookup_type_constructor' xs cons_name
+    (_, args) -> (namex, paramsx, args)
+
+is_form_of :: Name -> [TForm] -> (Name, [MyType])
+is_form_of _ [] = ("", [])
+is_form_of cons_name (x:xs) = do
+  let (TForm (Id form_name, args)) = x
+  if form_name == cons_name then (form_name, args) else cons_name `is_form_of` xs
 
 ----------------- Update -------------------
 
@@ -467,6 +485,10 @@ showLiteral (BoolLiteral x) = show x
 showLiteral (StringLiteral x) = show x
 showLiteral (CharLiteral x) = show x
 showLiteral (UnitLiteral x) = show x
+showLiteral (TypeLiteral cons_name args params) = do
+  let params_str = foldl (++) "" $ map (\(Id s) -> s ++ ", ") params
+  let args_str = foldl (++) "" $ map (\s -> (showLiteral s ++ ", ")) args
+  cons_name ++ "<" ++ params_str ++ ">(" ++ args_str ++ ")"
 showLiteral NoneToken = "No Value"
 showLiteral x = show x
 

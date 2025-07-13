@@ -40,6 +40,8 @@ parse_exp_rule = do
 
 ----------------- Type Declarations -----------------
 
+-- TODO: check if user created type correctly (like not inserting literals and stuff)
+
 type_declarations_op :: ParsecT [InfoAndToken] MyState IO [Token]
 type_declarations_op = (do
                         a <- type_decl 
@@ -96,33 +98,34 @@ formC_opt = (do
           (type_forms, b) <- forms
           return (type_forms, a:b)) <|> return ([], [])
 
-fpar :: ParsecT [InfoAndToken] MyState IO ([Name], [Token])
+fpar :: ParsecT [InfoAndToken] MyState IO ([Token], [Token])
 fpar = (do
         a <- openParenthesesToken
-        b <- idsOpt
+        b <- idsAndTypesOpt
         c <- closeParenthesesToken
         --
-        let type_forms = map (\(Id name) -> name) $ filter (not . \x -> x == Comma) b
+        let type_forms = filter (not . \x -> x == Comma) b
         --
         return (type_forms, (a:b) ++ [c])) <|> return ([], [])
 
-type_id_rule :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
-type_id_rule a = do
+-- Parses a type constructor
+type_cons_rule :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+type_cons_rule a = do
     s <- getState
-    let (Id a_name) = a
-    b <- case lookup_type s a_name of -- TODO: This should be lookup constructor!!!!!
+    let (Id constructor_name) = a
+    b <- case lookup_type_constructor s constructor_name of
               ("", _, _) -> fail ""
-              (type_name, type_params, type_args) -> do
-                (b_value, b_params_values, b) <- type_id_rule_remaining a_name type_args type_params
+              (type_name, type_params, constructor_args) -> do
+                (b_value, b_params_values, b) <- type_cons_rule_remaining constructor_name constructor_args type_params
                 return (Type type_name b_params_values, b_value, noFuncBody, b)
     return b
 
 -- Parses a TypeLiteral trying first the pattern: Constructor<X, Y, ...>...  -- (I call this params)
 -- Then, it tries: Constructor...(A, B, ...)  -- (I call this args)
-type_id_rule_remaining :: Name -> [TForm] -> [Name] -> ParsecT [InfoAndToken] MyState IO (Value, [MyType], [Token])
-type_id_rule_remaining constructor_name type_args type_params = do
+type_cons_rule_remaining :: Name -> [MyType] -> [Name] -> ParsecT [InfoAndToken] MyState IO (Value, [MyType], [Token])
+type_cons_rule_remaining constructor_name constructor_args type_params = do
       if type_params == [] then do
-        (b_value, b) <- type_id_rule_remaining_args constructor_name type_args
+        (b_value, b) <- type_cons_args constructor_name constructor_args type_params
         return (b_value, [], (Id constructor_name):b)
       else do
         b <- smallerToken
@@ -133,22 +136,25 @@ type_id_rule_remaining constructor_name type_args type_params = do
         when (length (filter (not . (\x -> is_type_name pos s x)) c_values) > 0) $ error_msg "dame3" []
         check_param_amount pos c_values type_params
         --
-        (TypeLiteral _ arg_values _, e) <- type_id_rule_remaining_args constructor_name type_args
+        (TypeLiteral _ arg_values _, e) <- type_cons_args constructor_name constructor_args type_params
         --
         return (TypeLiteral constructor_name arg_values c_values, c_values, ((Id constructor_name):b:c) ++ (d:e))
         
-type_id_rule_remaining_args :: Name -> [TForm] -> ParsecT [InfoAndToken] MyState IO (Value, [Token])
-type_id_rule_remaining_args constructor_name type_args = do
-        if type_args == [] then
+type_cons_args :: Name -> [MyType] -> [Name] -> ParsecT [InfoAndToken] MyState IO (Value, [Token])
+type_cons_args constructor_name constructor_args type_params = do
+        if constructor_args == [] then
           return (TypeLiteral constructor_name [] [], [Id constructor_name])
         else do
           b <- openParenthesesToken
           (c_types, c_values, _, c) <- args_rule_opt
           d <- closeParenthesesToken
-          --
-          let get_type = \(TForm (_type, _)) -> _type
+          -- Type check
           s <- getState; pos <- getPosition
-          check_types (type_check pos s check_eq) c_types (map get_type type_args)
+          let get_type x = case x of
+                            (Id type_name) -> Type type_name (map (\t -> Id t) type_params)
+                            base_type -> base_type
+          check_param_amount pos c_types constructor_args
+          check_types (type_check pos s check_eq) c_types (map get_type constructor_args)
           --
           return (TypeLiteral constructor_name c_values [], (b:c) ++ [d])
 
@@ -471,7 +477,7 @@ term = (do (_type, value, a) <- literal; return (_type, value, noFuncBody, [a]))
 struct_access_or_function_call :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access_or_function_call vars = do
       a <- idToken
-      b <- (do b <- type_id_rule a; return b)
+      b <- (do b <- type_cons_rule a; return b)
             <|> (do (b_type, b_value, b) <- function_call a; return (b_type, b_value, noFuncBody, b))
             <|> (struct_access' a vars)
       return b
@@ -952,6 +958,17 @@ ids :: ParsecT [InfoAndToken] MyState IO [Token]
 ids = (do a <- commaToken
           b <- idToken
           c <- ids
+          return (a:b:c)) <|> (return [])
+
+idsAndTypesOpt :: ParsecT [InfoAndToken] MyState IO [Token]
+idsAndTypesOpt = (do a <- idToken <|> types; b <- idsAndTypes; return (a:b))
+                <|> (return [])
+
+idsAndTypes :: ParsecT [InfoAndToken] MyState IO [Token]
+idsAndTypes = (do
+          a <- commaToken
+          b <- idToken <|> types
+          c <- idsAndTypes
           return (a:b:c)) <|> (return [])
 
 ----------------- Others -----------------
