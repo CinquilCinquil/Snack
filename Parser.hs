@@ -105,6 +105,13 @@ fpar = (do
         c <- closeParenthesesToken
         --
         let type_forms = filter (not . \x -> x == Comma) b
+        -- Type check
+        let is_type_id x = case x of
+                            (Id _) -> True
+                            _ -> False
+        let type_form_ids = filter is_type_id type_forms
+        s <- getState; pos <- getPosition
+        check_types_are_declared pos s (map (\(Id x) -> x) type_form_ids)
         --
         return (type_forms, (a:b) ++ [c])) <|> return ([], [])
 

@@ -185,6 +185,13 @@ is_form_of cons_name (x:xs) = do
   let (TForm (Id form_name, args)) = x
   if form_name == cons_name then (form_name, args) else cons_name `is_form_of` xs
 
+check_types_are_declared :: SourcePos -> MyState -> [Name] -> ParsecT [InfoAndToken] MyState IO ()
+check_types_are_declared _ _ [] = return ()
+check_types_are_declared pos s (x:xs) = 
+  case lookup_type s x of
+    ("", _, _) -> error_msg "Type '%' is not declared! Line: % Column: %" [x, showLine pos, showColumn pos]
+    _ -> check_types_are_declared pos s xs
+
 ----------------- Update -------------------
 
 -- wrapper for symtable_update_variable'
