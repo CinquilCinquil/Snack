@@ -625,6 +625,24 @@ get_cons_arg_types (x:xs) (y:ys) (z:zs) = do
     -- case: Primitive type
     primitive -> primitive : (get_cons_arg_types xs (y:ys) (z:zs))
 
+get_ith_from_matrix :: SourcePos -> Token -> Int -> (MyType, Token)
+get_ith_from_matrix pos (MatrixLiteral _ []) _ = 
+  error_msg "Index out of bounds! Line: % Column: %" [showLine pos, showColumn pos]
+get_ith_from_matrix pos (MatrixLiteral t (x:_)) 0 = do
+  case x of
+    (MatrixLiteral t' tks) -> (Matrix t' (get_dim tks), x)
+    _ -> (t, x)
+get_ith_from_matrix pos (MatrixLiteral t (x:xs)) i = get_ith_from_matrix pos (MatrixLiteral t xs) (i - 1)
+get_ith_from_matrix pos x _ = 
+  error_msg "Invalid access using square brackets for '%'! Line: % Column: %" [showLiteral x, showLine pos, showColumn pos]
+
+get_dim :: [Token] -> [Int]
+get_dim [] = []
+get_dim xs = do
+  case (head xs) of
+    (MatrixLiteral _ tks) -> (length xs):(get_dim tks)
+    _ -> [length xs]
+
 ----------------- Others -----------------
 
 print_state :: ParsecT [InfoAndToken] MyState IO ()

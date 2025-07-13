@@ -477,6 +477,7 @@ struct_access_or_function_call :: [Var] -> ParsecT [InfoAndToken] MyState IO (My
 struct_access_or_function_call vars = do
       a <- idToken
       b <- (do b <- type_cons_rule a; return b)
+            <|> (do b <- array_access a; return b)
             <|> (do (b_type, b_value, b) <- function_call a; return (b_type, b_value, noFuncBody, b))
             <|> (struct_access' a vars)
       return b
@@ -511,6 +512,39 @@ struct_access' a vars = (do
       let (Id name) = a
       let (_, a_type, a_value, a_body) = lookup_var pos name s
       return (a_type, a_value, a_body, [a]))
+
+-- funny enough there aren't any arrays in the language
+array_access :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+array_access a = do
+  -- Type check
+  s <- getState; pos <- getPosition
+  let (Id a_name) = a
+  case lookup_var pos a_name s of
+    (_, _, ErrorToken, _) -> error_msg "Variable '%' is not declared! Line: % Column: %" [a_name, showLine pos, showColumn pos]
+    (a_name, a_type, a_value, _) -> do
+      case a_type of
+        (Matrix _ dim) -> do
+          (b_type, b_value, b_body, b) <- array_access_recursive a_value
+          return (b_type, b_value, b_body, (a:b))
+        _ -> fail (replace '%' [a_name] "% was not a matrix or list")
+
+array_access_recursive :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+array_access_recursive matrix = do
+  b <- openSquareBracketsToken
+  (c_type, c_value, c_body, c) <- exp_rule
+  d <- closeSquareBracketsToken
+  -- Type check
+  s <- getState; pos <- getPosition
+  type_check pos s check_eq c_type Int
+  -- Checking if access is inside bounds
+  let (IntLiteral c_value') = c_value
+  let (return_type, matrix_value) = get_ith_from_matrix pos matrix c_value'
+  -- Recursive access [x][y][z]...
+  case matrix_value of
+    (MatrixLiteral _ _) -> do
+      (e_type, e_value, e_body, e) <- (array_access_recursive matrix_value) <|> return (return_type, matrix_value, c_body, [])
+      return (e_type, e_value, e_body, (b:c) ++ (d:e))
+    _ -> return (return_type, matrix_value, c_body, (b:c) ++ [d])
 
 function_call :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 function_call a = do
