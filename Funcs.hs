@@ -494,9 +494,8 @@ showLiteral (StringLiteral x) = show x
 showLiteral (CharLiteral x) = show x
 showLiteral (UnitLiteral x) = show x
 showLiteral (TypeLiteral cons_name args params) = do
-  let params_str = foldl (++) "" $ map (\s -> showLiteral s ++ ", ") params
   let args_str = foldl (++) "" $ map (\s -> showLiteral s ++ ", ") args
-  cons_name ++ "<" ++ params_str ++ ">(" ++ args_str ++ ")"
+  cons_name ++ "(" ++ args_str ++ ")"
 showLiteral NoneToken = "No Value"
 showLiteral x = show x
 

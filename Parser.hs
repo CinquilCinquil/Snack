@@ -67,14 +67,7 @@ type_decl = do
       return ((a:b) ++ (c:d))
 
 type_params_rule :: ParsecT [InfoAndToken] MyState IO ([Name], [Token])
-type_params_rule = (do
-      a <- smallerToken
-      b <- idsOpt
-      c <- greaterToken
-      --
-      let type_params = map (\(Id name) -> name) (filter (\x -> (not $ x == Comma)) b)
-      --
-      return (type_params, (a:b) ++ [c])) <|> return ([], [])
+type_params_rule = return ([], [])
 
 forms_opt :: [Name] -> ParsecT [InfoAndToken] MyState IO ([TForm], [Token])
 forms_opt type_params = (do a <- forms type_params; return a) <|> (return ([], []))
@@ -147,22 +140,7 @@ type_cons_rule_remaining constructor_name constructor_args type_params = do
   if type_params == [] then do
     (b_value, b) <- type_cons_args constructor_name constructor_args type_params []
     return (b_value, [], (Id constructor_name):b)
-  else do
-    b <- smallerToken -- '<'
-    c <- idsAndTypesOpt
-    d <- greaterToken -- '>'
-    --
-    let type_params_values = filter (not . \x -> x == Comma) c -- removing commas 
-    -- Type check
-    s <- getState; pos <- getPosition
-    let non_type_names = filter (not . (\x -> is_type_name pos s x)) type_params_values -- removing names that don't refer to types
-    when (length non_type_names > 0) $ do
-      error_msg "Non-Type in parameters of '%' ! Line: % Column: %" [constructor_name, showLine pos, showColumn pos]
-    check_param_amount pos type_params_values type_params
-    --
-    (TypeLiteral _ arg_values _, e) <- type_cons_args constructor_name constructor_args type_params type_params_values
-    --
-    return (TypeLiteral constructor_name arg_values type_params_values, type_params_values, ((Id constructor_name):b:c) ++ (d:e))
+  else error_msg "Parametric types have not been implemented" [] 
         
 type_cons_args :: Name -> [MyType] -> [Name] -> [MyType] -> ParsecT [InfoAndToken] MyState IO (Value, [Token])
 type_cons_args constructor_name constructor_args type_params type_params_values = do
@@ -173,12 +151,9 @@ type_cons_args constructor_name constructor_args type_params type_params_values 
           (c_types, c_values, _, c) <- args_rule_opt
           d <- closeParenthesesToken
           -- Type check
-          liftIO (print c_types)
           s <- getState; pos <- getPosition
           check_param_amount pos c_types constructor_args
           check_param_amount pos type_params_values type_params
-          check_types (type_check pos s check_eq) c_types (get_cons_arg_types constructor_args type_params type_params_values)
-          liftIO (print c_values)
           --
           return (TypeLiteral constructor_name c_values [], (b:c) ++ [d])
 
@@ -1030,21 +1005,7 @@ types =
         return (Id name)
       (type_name, type_params, _) -> do -- Case: This a type name
         if type_params == [] then return $ Type type_name [] -- Case: This type doesn't have parameters
-        else do -- Case: This type has parameters
-          b <- smallerToken -- '<'
-          c <- idsAndTypesOpt
-          d <- greaterToken -- '>'
-          --
-          let type_params_values = filter (not . \x -> x == Comma) c -- removing commas 
-          -- Type Check
-          s <- getState; pos <- getPosition
-          -- removing names that don't refer to types
-          let non_type_names = filter (not . (\x -> is_type_name pos s x)) type_params_values
-          when (length non_type_names > 0) $ do
-            error_msg "Non-Type in parameters of '%' ! Line: % Column: %" [name, showLine pos, showColumn pos]
-          check_param_amount pos type_params_values type_params
-          --
-          return $ Type type_name type_params_values
+        else error_msg "Parametric types have not been implemented" []
     )
   <|> fail "Not a valid type"
 
