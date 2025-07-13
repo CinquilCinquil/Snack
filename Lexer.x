@@ -77,6 +77,7 @@ tokens :-
   bool                                  { \p _ -> (getLC p, TBool) }
   unit                                  { \p _ -> (getLC p, Unit) }
   struct                                { \p s -> (getLC p, Struct) }
+  matrix                                { \p s -> (getLC p, Matrix Unit []) }
   -- Literals
   O	                                    { \p s -> (getLC p, NatLiteral 0) }
   S$D+	                                { \p s -> (getLC p, NatLiteral $ 1 + (read (tail s))) }
@@ -167,6 +168,7 @@ data Token =
   TBool |
   Unit |
   Struct |
+  Matrix Token [Int] |
   -- Literals
   NatLiteral Int |
   IntLiteral Int |
@@ -176,6 +178,7 @@ data Token =
   BoolLiteral Bool |
   UnitLiteral () |
   StructLiteral [(String, Token, Token, [Token])] | -- [(Name, Type, Value, FunctionBody)]
+  MatrixLiteral Token [Token] |
   TypeLiteral String [Token] [Token] | -- Constructor name, args, params
   -- Others
   Id String |

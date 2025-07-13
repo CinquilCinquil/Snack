@@ -93,6 +93,7 @@ floatToken = tokenParser Float
 boolToken = tokenParser TBool
 unitToken = tokenParser Unit
 structToken = tokenParser Struct
+matrixToken = tokenParser (Matrix Unit [])
 
 -- Literals
 
@@ -125,6 +126,8 @@ boolLiteralToken :: ParsecT [InfoAndToken] st IO (Token)
 boolLiteralToken = tokenPrim show update_pos get_token where
   get_token (info, BoolLiteral x) = Just (BoolLiteral x)
   get_token _       = Nothing
+
+-- TODO: matrix literal token
 
 -- this would be very cool! like: a : struct := {"x" : 1, "y" : "hello", z : 0.001}
 -- structLiteralToken :: ParsecT [InfoAndToken] st IO (Token)

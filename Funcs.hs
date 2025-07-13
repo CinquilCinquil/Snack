@@ -334,6 +334,7 @@ get_default_value _ _ TChar = CharLiteral '\a'
 get_default_value _ _ Float = FloatLiteral 0.0
 get_default_value _ _ TBool = BoolLiteral False
 get_default_value _ _ Unit = UnitLiteral ()
+get_default_value pos s (Matrix t dim) = MatrixLiteral t (initialize_matrix pos s t dim)
 get_default_value pos s (Id name) = do
   let (_, _, attrbs, _) = lookup_var pos name s
   attrbs
@@ -343,6 +344,15 @@ get_default_value pos s (Type type_name type_params) =
     (_, _, type_forms) -> do
       let (TForm (Id constructor_name, _)) = (head type_forms)
       TypeLiteral constructor_name [] [] -- TODO: this is temporary
+
+initialize_matrix :: SourcePos -> MyState -> MyType -> [Int] -> [Token]
+initialize_matrix _ _ _ [] = []
+initialize_matrix pos s t [n] = list_of_n_mxlit n (get_default_value pos s t)
+initialize_matrix pos s t (n:ns) = list_of_n_mxlit n (MatrixLiteral t (initialize_matrix pos s t ns))
+
+list_of_n_mxlit :: Int -> Token -> [Token]
+list_of_n_mxlit 0 tk = []
+list_of_n_mxlit n tk = tk:(list_of_n_mxlit (n - 1) tk)
 
 -- gets function code and returns: params, param types, function body
 get_params :: [Token] -> ([Name], [Token], [Token])
@@ -496,8 +506,20 @@ showLiteral (UnitLiteral x) = show x
 showLiteral (TypeLiteral cons_name args params) = do
   let args_str = foldl (++) "" $ map (\s -> showLiteral s ++ ", ") args
   cons_name ++ "(" ++ args_str ++ ")"
+showLiteral (MatrixLiteral t content) = show_matrix "" content
 showLiteral NoneToken = "No Value"
 showLiteral x = show x
+
+show_matrix :: String -> [Token] -> String
+show_matrix space [] = ""
+show_matrix space (x:xs) =
+  case x of
+    (MatrixLiteral _ content) -> space ++ "\n" ++ (show_matrix (space ++ "-") content) ++ (show_matrix space xs)
+    lit -> (show_matrix_literal (x:xs))
+
+show_matrix_literal :: [Token] -> String
+show_matrix_literal [] = "\n"
+show_matrix_literal (x:xs) = (showLiteral x) ++ " " ++ (show_matrix_literal xs)
 
 read_literal :: String -> Token
 read_literal s
@@ -570,6 +592,7 @@ get_literal TBool v = to_bool v
 get_literal TChar v = to_char v
 get_literal TString v = to_string v
 get_literal Unit _ = UnitLiteral ()
+--get_literal (Matrix t dim) _ = MatrixLiteral t (initialize_matrix t dim)
 
 -- TODO: to_nat
 
@@ -581,6 +604,7 @@ is_type_name _ _ TBool = True
 is_type_name _ _ TChar = True
 is_type_name _ _ TString = True
 is_type_name _ _ Unit = True
+is_type_name _ _ (Matrix _ _) = True
 is_type_name pos s (Id name) =
   case lookup_type s name of
     ("", _, _) -> error_msg "dame4" [] -- TODO: usar o pos
@@ -634,3 +658,10 @@ to_infoAndToken xs = map (\s -> ((0, 0), s)) xs
 is_in_list x list_ = case list_ of
                       [] -> False
                       (e:ls) -> x == e || is_in_list x ls
+
+
+get_matrix_int_values pos x = do
+    let x_value = (\(IntLiteral x) -> x) x
+    if x_value < 0 
+      then error_msg "Only positive values allowed at matrix dimensions! Line: % Column: %" [showLine pos, showColumn pos] 
+    else x_value

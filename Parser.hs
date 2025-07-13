@@ -996,6 +996,11 @@ types =
   <|> (do a <- typeToken; return a)
   <|> (do a <- unitToken; return a)
   <|> (do
+    a <- matrixToken
+    b_type <- read_type_parameter <|> (return Unit)
+    c_dim <- read_matrix_dimensions
+    return $ Matrix b_type c_dim)
+  <|> (do
     (Id name) <- idToken
     --
     s <- getState; pos <- getPosition
@@ -1008,6 +1013,28 @@ types =
         else error_msg "Parametric types have not been implemented" []
     )
   <|> fail "Not a valid type"
+
+read_type_parameter :: ParsecT [InfoAndToken] MyState IO (MyType)
+read_type_parameter = do
+                    a <- smallerToken -- '<'
+                    b <- types
+                    c <- greaterToken -- '>'
+                    return b
+
+read_matrix_dimensions :: ParsecT [InfoAndToken] MyState IO [Int]
+read_matrix_dimensions = do
+    a <- openParenthesesToken
+    (b_types, b_values, _, _) <- args_rule_opt
+    c <- closeParenthesesToken
+    -- Type Check
+    let isnt_int_literal x = case x of
+                              (IntLiteral _) -> False
+                              _ -> True
+    s <- getState; pos <- getPosition
+    if (filter isnt_int_literal b_values) == [] then do
+      return $ map (get_matrix_int_values pos) b_values
+    else
+      error_msg "Only integer literal allowed at matrix dimensions! Line: % Column: %" [showLine pos, showColumn pos]
 
 dontChangeFunctionBody = [NoneToken]
 noFuncBody = [NoneToken]
