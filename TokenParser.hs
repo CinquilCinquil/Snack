@@ -30,6 +30,7 @@ openBracketsToken = tokenParser OpenBrackets
 closeBracketsToken = tokenParser CloseBrackets
 ellipsisToken = tokenParser Ellipsis
 twoDotsToken = tokenParser TwoDots
+questionToken = tokenParser Question
 
 -- Structures
 

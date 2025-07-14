@@ -29,6 +29,9 @@ program = do
 parse_block :: ParsecT [InfoAndToken] MyState IO (MyState, [Token])
 parse_block = do
             (_, h_type, h) <- block
+            --
+            updateState(map_ref_values_to_stack)
+            --
             s <- getState
             return (s, h)
   
@@ -288,7 +291,7 @@ array_attrib a = do
           updateState(symtable_update_variable (a, new_matrix_value, dontChangeFunctionBody))
         --
         return ((a:b) ++ (c:d) ++ [e])
-      _ -> error_msg "Variable '%' is not a matrix or a list! Line: % Column: %" [showLine pos, showColumn pos]
+      _ -> fail ""
 
 array_attrib_recursive :: [Int] -> ParsecT [InfoAndToken] MyState IO ([Int], [Token])
 array_attrib_recursive [] = (do
@@ -336,7 +339,7 @@ stmts = do
 stmts_op :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 stmts_op = (do a <- stmts; return a) <|> (return (False, Unit, []))
 
--- (return_type, tokens)
+-- (has_returned, return_type, tokens)
 stmt :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 stmt = (do a <- decl_or_atrib_or_access_or_call; return (False, Unit, a))
    <|> (do a <- struct_decl; return (False, Unit, a))
@@ -419,7 +422,7 @@ params func_name = do
     let (Id a') = a
     error_msg "Name '%' is already being used for an enclosing function. Line: % Column: %" [a', showLine pos, showColumn pos]
   --
-  b <- colonToken
+  b <- colonToken <|> questionToken
   c <- types
   --
   s <- getState; pos <- getPosition
@@ -623,24 +626,32 @@ function_call a = do
   s <- getState; pos <- getPosition
   let (Id func_name) = a
   let (_, func_type, _, func_code) = lookup_var pos func_name s
-  let (func_params, func_params_types, func_body) = get_params func_code
+  let (func_params, ref_params, func_params_types, func_body) = get_params func_code
+  let c_names = get_arg_names c
   check_param_amount pos func_params c_types
   check_types (type_check pos s check_eq) c_types func_params_types
+  liftIO (print c_names)
+  check_correct_ref_values pos func_params ref_params c_names
   -- Semantics
   let is_executing = get_flag s
   when is_executing $ do
         updateState (add_current_scope_name "fun")
         updateState (load_params func_params func_params_types c_values c_bodies)
-        updateState (add_call_to_stack func_name)
+        updateState (add_call_to_stack func_name (map (\s -> (Id s, NoneToken))  ref_params))
         --
         s' <- getState
         x <- parse_function func_name func_body s'
         --
+        s'' <- getState
+        let (_, values) = get_pass_by_value_result_variables s''
         updateState (remove_current_scope_name)
+        --
+        let c' = get_ref_args c_names func_params ref_params
+        updateState(assign_variables c' values)
   --
   s' <- getState; pos' <- getPosition
   let result_value = if is_executing then get_return_value pos' s' else NoneToken
-  when (not $ result_value == NoneToken) $ do updateState(pop_stack)
+  when (not $ result_value == NoneToken) $ updateState(pop_stack)
   --
   d <- closeParenthesesToken
   return (func_type, result_value, (a:b:c) ++ [d])

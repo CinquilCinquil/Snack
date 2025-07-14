@@ -17,7 +17,7 @@ tokens :-
   "--".+                                ;
   -- Punctuations / Parantheses
   ","                                   { \p _ -> (getLC p, Comma)}
-  :                                     { \p _ -> (getLC p, Colon)}
+  ":"                                   { \p _ -> (getLC p, Colon)}
   ";"                                   { \p _ -> (getLC p, SemiColon)}
   "."                                   { \p _ -> (getLC p, Period)}
   "("                                   { \p _ -> (getLC p, OpenParentheses)}
@@ -28,6 +28,7 @@ tokens :-
   "}"                                   { \p _ -> (getLC p, CloseBrackets)}
   "..."                                 { \p _ -> (getLC p, Ellipsis)}
   ".."                                  { \p _ -> (getLC p, TwoDots)}
+  "?"                                   { \p _ -> (getLC p, Question)}
   -- Structures
   if                                    { \p _ -> (getLC p, If) }
   then                                  { \p _ -> (getLC p, Then) }
@@ -118,6 +119,7 @@ data Token =
   CloseBrackets |
   Ellipsis |                        -- ...
   TwoDots  |                        -- ..
+  Question |                        -- ?
   -- Structures
   If  |
   Then |

@@ -15,7 +15,7 @@ import Data.Char(digitToInt, isNumber, toLower, intToDigit)
 type MyState = [(Variables, Stack, [TypeInfo], Subprograms, PC, ScopeName, Bool)] -- (..., PC, Scope name, isRunning)
 --
 type Variables = ScopeTree -- (Scope name, Variables)
-type Stack = [(Name, PC, Value)]
+type Stack = [(Name, [(Token, Value)], Value)]
 type TypeInfo = (Name, [Name], [TForm]) -- Name, Params, Forms
 type Subprograms = [(Name, MyType, [Var], Int)] -- (Name, return _type, arguments, start line)
 type PC = Int
@@ -88,8 +88,9 @@ load_params :: [Name] -> [MyType] -> [Value] -> [FunctionBody] -> MyState -> MyS
 load_params [] [] [] [] s = s
 load_params (x:xs) (y:ys) (z:zs) (w:ws) s = load_params xs ys zs ws (symtable_insert_variable (Id x, y, z, w) s)
 
-add_call_to_stack :: Name -> MyState -> MyState
-add_call_to_stack func_name [(vars, sk, ts, sp, pc, sn, flag)] = [(vars, (func_name, 0, UnitLiteral ()):sk, ts, sp, pc, sn, flag)]
+add_call_to_stack :: Name -> [(Token, Value)] -> MyState -> MyState
+add_call_to_stack func_name ref_params [(vars, sk, ts, sp, pc, sn, flag)] =
+   [(vars, (func_name, ref_params, UnitLiteral ()):sk, ts, sp, pc, sn, flag)]
 
 -- wrapper for symtable_insert_type'
 symtable_insert_type :: Name -> [Name] -> MyState -> MyState
@@ -191,6 +192,13 @@ check_types_are_declared pos s (x:xs) =
   case lookup_type s x of
     ("", _, _) -> error_msg "Type '%' is not declared! Line: % Column: %" [x, showLine pos, showColumn pos]
     _ -> check_types_are_declared pos s xs
+
+get_pass_by_value_result_variables :: MyState -> ([Token], [Value])
+get_pass_by_value_result_variables [(vars, [], ts, sp, pc, scope_name, flag)] = 
+  error_msg "Failed to retrieve stack variables, it is empty ! Erro #15" []
+get_pass_by_value_result_variables [(vars, x:xs, ts, sp, pc, scope_name, flag)] = do
+  let (_, vars_and_values, _) = x
+  unzip vars_and_values
 
 ----------------- Update -------------------
 
@@ -300,6 +308,24 @@ update_matrix_content pos [] _ _ = error_msg "Index out of bounds! Error #13. Li
 update_matrix_content pos (x:xs) new_value 0 = new_value:xs
 update_matrix_content pos (x:xs) new_value n = x:(update_matrix_content pos xs new_value (n - 1))
 
+assign_variables :: [Token] -> [Value] -> MyState -> MyState
+assign_variables [] [] s = s
+assign_variables (x:xs) (y:ys) s = assign_variables xs ys (symtable_update_variable (x, y, [NoneToken]) s)
+
+map_ref_values_to_stack :: MyState -> MyState
+map_ref_values_to_stack [(vars, [], ts, sp, pc, scope_name, flag)] = 
+  error_msg "Failed to retrieve stack variables, it is empty ! Erro #16" []
+map_ref_values_to_stack [(vars, (x:xs), ts, sp, pc, scope_name, flag)] = do
+  let (a, vars_and_values, b) = x
+  let (vars', _) = unzip vars_and_values
+  let lookup_var'' (Id name) = case lookup_var' name vars scope_name of
+                                (_, _, ErrorToken, _) -> do
+                                  error_msg "Variable '%' declared with '?' not found in '%'" [name, show scope_name]
+                                (_, _, value, _) -> value
+  let new_values = map lookup_var'' vars'
+  let new_x = (a, zip vars' new_values, b)
+  [(vars, (new_x:xs), ts, sp, pc, scope_name, flag)]
+
 ----------------- Remove -------------------
 
 remove_current_scope_name :: MyState -> MyState
@@ -345,7 +371,7 @@ set_return_value :: SourcePos -> Value -> MyState -> MyState
 set_return_value pos value [(vars, stack, ts, sp, pc, sn, flag)] = 
   case stack of
     [] -> error_msg "Trying to set return value but there isn't an instance in stack! Error #11. Line: % Column: %" [showLine pos, showColumn pos]
-    ((name, pc, _):xs) -> [(vars, (name, pc, value):xs, ts, sp, pc, sn, flag)]
+    ((name, ref_params, _):xs) -> [(vars, (name, ref_params, value):xs, ts, sp, pc, sn, flag)]
 
 get_value_from_exp :: [Token] -> MyState -> Token
 get_value_from_exp expression [(vars, sk, ts, sp, pc, sn, flag)] = IntLiteral 0
@@ -379,17 +405,20 @@ list_of_n_mxlit 0 tk = []
 list_of_n_mxlit n tk = tk:(list_of_n_mxlit (n - 1) tk)
 
 -- gets function code and returns: params, param types, function body
-get_params :: [Token] -> ([Name], [Token], [Token])
-get_params [] = ([], [], [])
+get_params :: [Token] -> ([Name], [Name], [Token], [Token])
+get_params [] = ([], [], [], [])
 get_params (Comma:xs) = get_params xs
-get_params (EndOfParamsToken:xs) = ([], [], xs)
-get_params (id:Colon:the_type:xs) = do
+get_params (EndOfParamsToken:xs) = ([], [], [], xs)
+get_params (id:colon_or_question:the_type:xs) = do
   let id_name = case id of
                   (Id name) -> name
-                  x -> error_msg "Invalid Param '%' ! Error #1" [show x]
-  let (params, param_types, func_body) = get_params xs
-  (id_name:params, the_type:param_types, func_body)
-get_params _ = error_msg "Invalid params in function call! Error #2" []
+                  x -> error_msg "Invalid Param '%' ! Error #1.2" [show x]
+  let (params, ref_params, param_types, func_body) = get_params xs
+  case colon_or_question of 
+    Question -> (id_name:params, id_name:ref_params, the_type:param_types, func_body)
+    Colon -> (id_name:params, ref_params, the_type:param_types, func_body)
+    _ -> error_msg "Invalid params in function call! Error #2.1" []
+get_params _ = error_msg "Invalid params in function call! Error #2.2" []
 
 check_param_amount :: SourcePos -> [a] -> [b] -> ParsecT [InfoAndToken] MyState IO ()
 check_param_amount pos a b = if (length a) == (length b)
@@ -428,6 +457,15 @@ else error_msg "% Types '%' and/or '%' are not integral! Line: % Column: %" [ext
 check_bool :: String -> SourcePos -> MyType -> MyType -> Bool
 check_bool extra_msg pos t1 t2 = if (check_eq extra_msg pos t1 t2) && (t2 == TBool) then True
 else error_msg "% Types '%' and/or '%' are not boolean! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
+
+check_correct_ref_values :: SourcePos -> [Name] -> [Name] -> [Token] -> ParsecT [InfoAndToken] MyState IO ()
+check_correct_ref_values _ _ [] _ = return ()
+check_correct_ref_values pos (x:xs) (y:ys) (z:zs) = do
+  if x `is_in_list` (y:ys) then do
+    case z of
+      (Id _) -> check_correct_ref_values pos xs ys zs
+      _ -> error_msg "Cannot use literals when passing by reference ! Line: % Column: %" [showLine pos, showColumn pos]
+  else check_correct_ref_values pos xs (y:ys) zs
 
 -- TODO: support type equivalence!?
 isArithm :: MyType -> Bool
@@ -667,6 +705,16 @@ get_dim xs = do
   case (head xs) of
     (MatrixLiteral _ tks) -> (length xs):(get_dim tks)
     _ -> [length xs]
+
+get_ref_args :: Eq b => [a] -> [b] -> [b] -> [a]
+get_ref_args [] _ _ = []
+get_ref_args (x:xs) (y:ys) (z:zs) = do
+  if y `is_in_list` (z:zs) then x:(get_ref_args xs ys zs) else (get_ref_args xs ys zs)
+
+-- TODO: adapt for when function call is present
+get_arg_names :: [Token] -> [Token]
+get_arg_names [] = []
+get_arg_names (x:xs) = if x == Comma then get_arg_names xs else x:(get_arg_names xs)
 
 ----------------- Others -----------------
 
