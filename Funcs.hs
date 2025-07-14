@@ -288,17 +288,17 @@ symtable_update_type' (x:xs) type_name forms = do
   else (x:symtable_update_type' xs type_name forms)
 
 update_matrix_value :: SourcePos -> Value -> [Int] -> Value -> Value
-update_matrix_value _ _ [] _ = error_msg "Matrix max depth reached! Error #12" []
-update_matrix_value pos (MatrixLiteral t content) [c] new_value = (MatrixLiteral t (update_matrix_content content new_value c))
+update_matrix_value pos _ [] _ = error_msg "Index out of bounds! Error #12. Line: % Column: %" [showLine pos, showColumn pos]
+update_matrix_value pos (MatrixLiteral t content) [c] new_value = (MatrixLiteral t (update_matrix_content pos content new_value c))
 update_matrix_value pos (MatrixLiteral t content) (c:cs) new_value = do
   let (_, q) = get_ith_from_matrix pos (MatrixLiteral t content) c
   let k = (update_matrix_value pos q cs new_value)
-  (MatrixLiteral t (update_matrix_content content k c))
+  (MatrixLiteral t (update_matrix_content pos content k c))
 
-update_matrix_content :: [Value] -> Value -> Int -> [Value]
-update_matrix_content [] _ _ = error_msg "Matrix max depth reached! Error #13" []
-update_matrix_content (x:xs) new_value 0 = new_value:xs
-update_matrix_content (x:xs) new_value n = x:(update_matrix_content xs new_value (n - 1))
+update_matrix_content :: SourcePos -> [Value] -> Value -> Int -> [Value]
+update_matrix_content pos [] _ _ = error_msg "Index out of bounds! Error #13. Line: % Column: %" [showLine pos, showColumn pos]
+update_matrix_content pos (x:xs) new_value 0 = new_value:xs
+update_matrix_content pos (x:xs) new_value n = x:(update_matrix_content pos xs new_value (n - 1))
 
 ----------------- Remove -------------------
 

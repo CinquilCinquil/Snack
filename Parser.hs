@@ -880,7 +880,7 @@ for_rule = do
       parse_structure "for" g' s'' cond_exp
     --
     updateState (remove_current_scope_name)
-    return (g_type, (a:b) ++ b ++ [c] ++ d ++ (e:f) ++ g)
+    return (g_type, (a:b) ++ [c] ++ d ++ (e:f) ++ g)
 
 -- TODO: put a step option
 range_rule :: ParsecT [InfoAndToken] MyState IO (MyType, (Value, Value, Token), [Token])
