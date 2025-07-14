@@ -1175,9 +1175,9 @@ read_matrix_dimensions = do
 initialState = [(Node "root" [] NoChildren, [], [], [], 0, ["root"], True)]
 defaultValue = StringLiteral "Default Value"
 
-parse_function :: Name -> [Token] -> MyState -> ParsecT [InfoAndToken] MyState IO ()
+parse_function :: Name -> [InfoAndToken] -> MyState -> ParsecT [InfoAndToken] MyState IO ()
 parse_function func_name func_body s = do
-  result <- liftIO (runParserT parse_block s (replace '%' [func_name] "Parsing error inside '%' call!") (to_infoAndToken func_body))
+  result <- liftIO (runParserT parse_block s (replace '%' [func_name] "Parsing error inside '%' call!") func_body)
   let new_state = case result of
                 Left err -> error (show err)
                 Right (new_state, ans) -> new_state

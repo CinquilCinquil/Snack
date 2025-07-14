@@ -407,25 +407,22 @@ list_of_n_mxlit :: Int -> Token -> [Token]
 list_of_n_mxlit 0 tk = []
 list_of_n_mxlit n tk = tk:(list_of_n_mxlit (n - 1) tk)
 
--- wrapper for get_params'
-get_params :: [InfoAndToken] -> ([Name], [Name], [Token], [Token])
-get_params stuff = get_params' (map snd stuff)
 
 -- gets function code and returns: params, param types, function body
-get_params' :: [Token] -> ([Name], [Name], [Token], [Token])
-get_params' [] = ([], [], [], [])
-get_params' (Comma:xs) = get_params' xs
-get_params' (EndOfParamsToken:xs) = ([], [], [], xs)
-get_params' (id:colon_or_question:the_type:xs) = do
+get_params :: [InfoAndToken] -> ([Name], [Name], [Token], [InfoAndToken])
+get_params [] = ([], [], [], [])
+get_params (((_, _), Comma):xs) = get_params xs
+get_params (((_, _), EndOfParamsToken):xs) = ([], [], [], xs)
+get_params (((_, _), id):((_, _), colon_or_question):((_, _), the_type):xs) = do
   let id_name = case id of
                   (Id name) -> name
                   x -> error_msg "Invalid Param '%' ! Error #1.2" [show x]
-  let (params, ref_params, param_types, func_body) = get_params' xs
+  let (params, ref_params, param_types, func_body) = get_params xs
   case colon_or_question of 
     Question -> (id_name:params, id_name:ref_params, the_type:param_types, func_body)
     Colon -> (id_name:params, ref_params, the_type:param_types, func_body)
     _ -> error_msg "Invalid params in function call! Error #2.1" []
-get_params' _ = error_msg "Invalid params in function call! Error #2.2" []
+get_params _ = error_msg "Invalid params in function call! Error #2.2" []
 
 check_param_amount :: SourcePos -> [a] -> [b] -> ParsecT [InfoAndToken] MyState IO ()
 check_param_amount pos a b = if (length a) == (length b)
