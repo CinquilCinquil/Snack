@@ -375,7 +375,7 @@ fun_decl = do
         updateState (add_current_scope_name "fun")
         updateState (set_flag False)
         --
-        (d_types, _, d) <- (do a <- params; return a) <|> (return ([], [], []))
+        (d_types, _, d) <- (do a <- params b; return a) <|> (return ([], [], []))
         e <- closeParenthesesToken
         f <- colonToken
         g <- types
@@ -396,30 +396,36 @@ fun_decl = do
         --
         return ([a, b, c] ++ d ++ [e, f, g] ++ h)
 
-params :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
-params = do
-        a <- idToken
-        b <- colonToken
-        c <- types
-        --
-        s <- getState; pos <- getPosition
-        updateState (symtable_insert_variable (a, c, get_default_value pos s c, []))
-        --
-        (d_type, d_value, d) <- atrib_opt c
-        --
-        s' <- getState; pos' <- getPosition
-        let var_value = if d == [] then get_default_value pos' s' c else d_value
-        updateState (symtable_update_variable (a, var_value, dontChangeFunctionBody))
-        liftIO (putStrLn "params_declaration:")
-        print_state
-        --
-        (e_types, e_values, e) <- params_op
-        return (d_type:e_types, d_value:e_values, (a:b:[c]) ++ d ++ e)
+params :: Token -> ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
+params func_name = do
+  a <- idToken
+  --
+  pos <- getPosition
+  when (func_name == a) $ do
+    let (Id a') = a
+    error_msg "Name '%' is already being used for an enclosing function. Line: % Column: %" [a', showLine pos, showColumn pos]
+  --
+  b <- colonToken
+  c <- types
+  --
+  s <- getState; pos <- getPosition
+  updateState (symtable_insert_variable (a, c, get_default_value pos s c, []))
+  --
+  (d_type, d_value, d) <- atrib_opt c
+  --
+  s' <- getState; pos' <- getPosition
+  let var_value = if d == [] then get_default_value pos' s' c else d_value
+  updateState (symtable_update_variable (a, var_value, dontChangeFunctionBody))
+  liftIO (putStrLn "params_declaration:")
+  print_state
+  --
+  (e_types, e_values, e) <- params_op func_name
+  return (d_type:e_types, d_value:e_values, (a:b:[c]) ++ d ++ e)
 
-params_op :: ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
-params_op = (do
+params_op :: Token -> ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
+params_op func_name = (do
             a <- commaToken
-            (b_types, b_values, b) <- params
+            (b_types, b_values, b) <- params func_name
             return (b_types, b_values, (a:b))) <|> (return ([], [], []))
 
 struct_decl :: ParsecT [InfoAndToken] MyState IO [Token]
