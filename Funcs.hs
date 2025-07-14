@@ -707,14 +707,28 @@ get_dim xs = do
     _ -> [length xs]
 
 get_ref_args :: Eq b => [a] -> [b] -> [b] -> [a]
-get_ref_args [] _ _ = []
+get_ref_args _ _ [] = []
 get_ref_args (x:xs) (y:ys) (z:zs) = do
   if y `is_in_list` (z:zs) then x:(get_ref_args xs ys zs) else (get_ref_args xs ys zs)
 
 -- TODO: adapt for when function call is present
 get_arg_names :: [Token] -> [Token]
 get_arg_names [] = []
-get_arg_names (x:xs) = if x == Comma then get_arg_names xs else x:(get_arg_names xs)
+get_arg_names xs = get_arg_names' 0 xs
+
+get_arg_names' :: Int -> [Token] -> [Token]
+get_arg_names' _ [] = []
+get_arg_names' 0 (x:xs) = do
+  case x of
+    Comma -> get_arg_names xs
+    OpenParentheses -> get_arg_names' 1 xs
+    value -> x:(get_arg_names xs)
+get_arg_names' n (x:xs) = do
+  case x of
+    Comma -> get_arg_names' n xs
+    OpenParentheses -> get_arg_names' (n + 1) xs
+    CloseParentheses -> get_arg_names' (n - 1) xs
+    value -> get_arg_names' n xs
 
 ----------------- Others -----------------
 

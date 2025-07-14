@@ -630,7 +630,6 @@ function_call a = do
   let c_names = get_arg_names c
   check_param_amount pos func_params c_types
   check_types (type_check pos s check_eq) c_types func_params_types
-  liftIO (print c_names)
   check_correct_ref_values pos func_params ref_params c_names
   -- Semantics
   let is_executing = get_flag s
@@ -646,8 +645,9 @@ function_call a = do
         let (_, values) = get_pass_by_value_result_variables s''
         updateState (remove_current_scope_name)
         --
-        let c' = get_ref_args c_names func_params ref_params
-        updateState(assign_variables c' values)
+        when (length ref_params > 0) $ do
+          let c' = get_ref_args c_names func_params ref_params
+          updateState(assign_variables c' values)
   --
   s' <- getState; pos' <- getPosition
   let result_value = if is_executing then get_return_value pos' s' else NoneToken
