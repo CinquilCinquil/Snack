@@ -179,7 +179,7 @@ data Token =
   FloatLiteral Float |
   BoolLiteral Bool |
   UnitLiteral () |
-  StructLiteral [(String, Token, Token, [Token])] | -- [(Name, Type, Value, FunctionBody)]
+  StructLiteral [(String, Token, Token, [InfoAndToken])] | -- [(Name, Type, Value, FunctionBody)]
   MatrixLiteral Token [Token] |
   TypeLiteral String [Token] [Token] | -- Constructor name, args, params
   -- Others

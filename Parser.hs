@@ -96,19 +96,17 @@ formC_opt type_params = (do
 fpar :: [Name] -> ParsecT [InfoAndToken] MyState IO ([Token], [Token])
 fpar type_params = (do
         a <- openParenthesesToken
-        b <- idsAndTypesOpt
+        (b_types, b) <- idsAndTypesOpt
         c <- closeParenthesesToken
-        --
-        let type_forms = filter (not . \x -> x == Comma) b
         -- Type check
         let is_type_id x = case x of
                             (Id name) -> not $ name `is_in_list` type_params
                             _ -> False
-        let type_form_ids = filter (is_type_id) type_forms
+        let type_form_ids = filter (is_type_id) b_types
         s <- getState; pos <- getPosition
         check_types_are_declared pos s (map (\(Id x) -> x) type_form_ids)
         --
-        return (type_forms, (a:b) ++ [c])) <|> return ([], [])
+        return (b_types, (a:b) ++ [c])) <|> return ([], [])
 
 -- Parses a type constructor
 type_cons_rule :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
@@ -175,15 +173,15 @@ declaration :: ParsecT [InfoAndToken] MyState IO ([Token])
 declaration = (do
               b <- idToken
               c <- colonToken
-              d <- types
+              (d_type, d) <- types
               e <- semiColonToken
               --
               s <- getState; pos <- getPosition
-              updateState (symtable_insert_variable (b, d, get_default_value pos s d, []))
+              updateState (symtable_insert_variable (b, d_type, get_default_value pos s d_type, []))
               liftIO (putStrLn "declaration:")
               print_state
               --
-              return (b:c:d:[e]))
+              return ((b:c:d) ++ [e]))
               <|>
               (do
               a <- fun_decl
@@ -228,20 +226,20 @@ init_or_decl id_token = (do -- Assignment
                 <|>
                 (do -- Declaration
                 a <- colonToken
-                b <- types
-                (exp_type, exp_value, c) <- atrib_opt b
+                (b_type, b) <- types
+                (exp_type, exp_value, c) <- atrib_opt b_type
                 --
                 s <- getState; pos <- getPosition
-                updateState (symtable_insert_variable (id_token, b, get_default_value pos s b, []))
+                updateState (symtable_insert_variable (id_token, b_type, get_default_value pos s b_type, []))
                 --
                 s' <- getState; pos' <- getPosition
                 type_check pos' s' check_eq id_token exp_type
-                let var_value = if c == [] then get_default_value pos' s' b else exp_value
+                let var_value = if c == [] then get_default_value pos' s' b_type else exp_value
                 when (get_flag s') $ do
                   updateState (symtable_update_variable (id_token, var_value, dontChangeFunctionBody))
                 print_state
                 --
-                return (a:b:c))
+                return ((a:b) ++ c))
 
 atrib_opt :: MyType -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 atrib_opt _type = (do
@@ -383,6 +381,7 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (False, Unit, a))
 
 fun_decl :: ParsecT [InfoAndToken] MyState IO [Token]
 fun_decl = do
+        --
         a <- funToken
         b <- idToken
         c <- openParenthesesToken
@@ -392,26 +391,31 @@ fun_decl = do
         updateState (add_current_scope_name "fun")
         updateState (set_flag False)
         --
+        remaining_tokens <- getInput
         (d_types, _, d) <- (do a <- params b; return a) <|> (return ([], [], []))
         e <- closeParenthesesToken
         f <- colonToken
-        g <- types
+        (g_type, g) <- types
         --
-        updateState (symtable_update_variable_type (b, g)) -- NOTE: 'g' is only the return type, add param types?
-        updateState (symtable_update_variable (b, dontChangeValue, d ++ [EndOfParamsToken]))
+        updateState (symtable_update_variable_type (b, g_type)) -- NOTE: 'g_type' is only the return type, add param types?
+        -- reinserting token positions
+        let func_body = (zip (map fst (take (length d) remaining_tokens)) d) ++ [((0, 0), EndOfParamsToken)]
+        updateState (symtable_update_variable (b, dontChangeValue, func_body))
         --
+        remaining_tokens' <- getInput
         (_, h_type, h) <- block
         --
         let (Id func_name) = b
         s <- getState; pos <- getPosition
-        type_check_with_msg (replace '%' [func_name] "In function '%' return: ") pos s check_eq h_type g
+        type_check_with_msg (replace '%' [func_name] "In function '%' return: ") pos s check_eq h_type g_type
         --
         updateState (remove_current_scope_name)
         updateState (set_flag True)
         --
-        updateState (symtable_update_variable (b, dontChangeValue, d ++ [EndOfParamsToken] ++ h))
+        let func_body' = zip (map fst (take (length h) remaining_tokens')) h
+        updateState (symtable_update_variable (b, dontChangeValue, func_body ++ func_body'))
         --
-        return ([a, b, c] ++ d ++ [e, f, g] ++ h)
+        return ([a, b, c] ++ d ++ [e, f] ++ g ++ h)
 
 params :: Token -> ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
 params func_name = do
@@ -423,21 +427,21 @@ params func_name = do
     error_msg "Name '%' is already being used for an enclosing function. Line: % Column: %" [a', showLine pos, showColumn pos]
   --
   b <- colonToken <|> questionToken
-  c <- types
+  (c_type, c) <- types
   --
   s <- getState; pos <- getPosition
-  updateState (symtable_insert_variable (a, c, get_default_value pos s c, []))
+  updateState (symtable_insert_variable (a, c_type, get_default_value pos s c_type, []))
   --
-  (d_type, d_value, d) <- atrib_opt c
+  (d_type, d_value, d) <- atrib_opt c_type
   --
   s' <- getState; pos' <- getPosition
-  --let var_value = if d == [] then get_default_value pos' s' c else d_value -- feature removed from language due to time :(
+  --let var_value = if d == [] then get_default_value pos' s' c_type else d_value -- feature removed from language due to time :(
   --updateState (symtable_update_variable (a, var_value, dontChangeFunctionBody))
   liftIO (putStrLn "params_declaration:")
   print_state
   --
   (e_types, e_values, e) <- params_op func_name
-  return (d_type:e_types, d_value:e_values, (a:b:[c]) ++ d ++ e)
+  return (d_type:e_types, d_value:e_values, (a:b:c) ++ d ++ e)
 
 params_op :: Token -> ParsecT [InfoAndToken] MyState IO ([MyType], [Value], [Token])
 params_op func_name = (do
@@ -944,14 +948,14 @@ for_declaration :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 for_declaration = do
               b <- idToken
               c <- colonToken
-              d <- types
+              (d_type, d) <- types
               --
               s <- getState; pos <- getPosition
-              updateState (symtable_insert_variable (b, d, get_default_value pos s d, []))
+              updateState (symtable_insert_variable (b, d_type, get_default_value pos s d_type, []))
               --
               liftIO (putStrLn "for_declaration:")
               print_state
-              return (d, (b:c:[d]))
+              return (d_type, b:c:d)
 
 while_rule :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 while_rule = do
@@ -1084,16 +1088,18 @@ ids = (do a <- commaToken
           c <- ids
           return (a:b:c)) <|> (return [])
 
-idsAndTypesOpt :: ParsecT [InfoAndToken] MyState IO [Token]
-idsAndTypesOpt = (do a <- idToken <|> types; b <- idsAndTypes; return (a:b))
-                <|> (return [])
+idsAndTypesOpt :: ParsecT [InfoAndToken] MyState IO ([MyType], [Token])
+idsAndTypesOpt = (do
+  (a_type, a) <- (do a <- idToken; return (a, [a])) <|> types
+  (b_types, b) <- idsAndTypes
+  return (a_type:b_types, a ++ b)) <|> (return ([], []))
 
-idsAndTypes :: ParsecT [InfoAndToken] MyState IO [Token]
+idsAndTypes :: ParsecT [InfoAndToken] MyState IO ([MyType], [Token])
 idsAndTypes = (do
           a <- commaToken
-          b <- idToken <|> types
-          c <- idsAndTypes
-          return (a:b:c)) <|> (return [])
+          (b_type, b) <- (do b <- idToken; return (b, [b])) <|> types
+          (c_types, c) <- idsAndTypes
+          return (b_type:c_types, (a:b) ++ c)) <|> (return ([], []))
 
 ----------------- Others -----------------
 
@@ -1110,21 +1116,21 @@ literal = (do a <- natLiteralToken; return (Nat, a, a))
   -- <|> (do a <- openParenthesesToken; b <- closeParenthesesToken; return (Unit, UnitLiteral (), UnitLiteral ()))
   <|> fail "Not a valid literal"
 
-types :: ParsecT [InfoAndToken] MyState IO (Token)
+types :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 types =
-  (do a <- natToken; return a)
-  <|> (do a <- intToken; return a)
-  <|> (do a <- stringToken; return a)
-  <|> (do a <- floatToken; return a ) 
-  <|> (do a <- charToken; return a)
-  <|> (do a <- boolToken; return a)
-  <|> (do a <- typeToken; return a)
-  <|> (do a <- unitToken; return a)
+  (do a <- natToken; return (a, [a]))
+  <|> (do a <- intToken; return (a, [a]))
+  <|> (do a <- stringToken; return (a, [a]))
+  <|> (do a <- floatToken; return (a, [a])) 
+  <|> (do a <- charToken; return (a, [a]))
+  <|> (do a <- boolToken; return (a, [a]))
+  <|> (do a <- typeToken; return (a, [a]))
+  <|> (do a <- unitToken; return (a, [a]))
   <|> (do
     a <- matrixToken
-    b_type <- read_type_parameter <|> (return Unit)
-    c_dim <- read_matrix_dimensions
-    return $ Matrix b_type c_dim)
+    (b_type, b) <- read_type_parameter <|> (return (Unit, []))
+    (c_dim, c) <- read_matrix_dimensions
+    return (Matrix b_type c_dim, (a:b) ++ c))
   <|> (do
     (Id name) <- idToken
     --
@@ -1132,38 +1138,35 @@ types =
     case lookup_type s name of
       ("", _, _) -> do -- Case: This is a struct
         check_var_is_struct pos name s
-        return (Id name)
+        return (Id name, [Id name])
       (type_name, type_params, _) -> do -- Case: This a type name
-        if type_params == [] then return $ Type type_name [] -- Case: This type doesn't have parameters
+        if type_params == [] then do -- Case: This type doesn't have parameters
+          return $ (Type type_name [], [Id name])
         else error_msg "Parametric types have not been implemented" []
     )
   <|> fail "Not a valid type"
 
-read_type_parameter :: ParsecT [InfoAndToken] MyState IO (MyType)
+read_type_parameter :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
 read_type_parameter = do
                     a <- smallerToken -- '<'
-                    b <- types
+                    (b_type, b) <- types
                     c <- greaterToken -- '>'
-                    return b
+                    return (b_type, (a:b) ++ [c])
 
-read_matrix_dimensions :: ParsecT [InfoAndToken] MyState IO [Int]
+read_matrix_dimensions :: ParsecT [InfoAndToken] MyState IO ([Int], [Token])
 read_matrix_dimensions = do
-    a <- openParenthesesToken
-    (b_types, b_values, _, _) <- args_rule_opt
-    c <- closeParenthesesToken
-    -- Type Check
-    let isnt_int_literal x = case x of
-                              (IntLiteral _) -> False
-                              _ -> True
-    s <- getState; pos <- getPosition
-    if (filter isnt_int_literal b_values) == [] then do
-      return $ map (get_matrix_int_values pos) b_values
-    else
-      error_msg "Only integer literal allowed at matrix dimensions! Line: % Column: %" [showLine pos, showColumn pos]
-
-dontChangeFunctionBody = [NoneToken]
-noFuncBody = [NoneToken]
-dontChangeValue = NoneToken
+  a <- openParenthesesToken
+  (b_types, b_values, _, b) <- args_rule_opt
+  c <- closeParenthesesToken
+  -- Type Check
+  let isnt_int_literal x = case x of
+                            (IntLiteral _) -> False
+                            _ -> True
+  s <- getState; pos <- getPosition
+  if (filter isnt_int_literal b_values) == [] then do
+    return $ (map (get_matrix_int_values pos) b_values, (a:b) ++ [c])
+  else
+    error_msg "Only integer literal allowed at matrix dimensions! Line: % Column: %" [showLine pos, showColumn pos]
 
 ---------------------------------------------------
 ----------------- Parser invocation

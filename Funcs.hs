@@ -27,7 +27,7 @@ data ScopeTree =
   deriving (Eq,Show) 
 type Name = String
 type Var = (Name, MyType, Value, FunctionBody)
-type FunctionBody = [Token]
+type FunctionBody = [InfoAndToken]
 type Value = Token
 type MyType = Token
 data TForm = TForm (Token, [MyType]) deriving(Eq, Show)
@@ -232,20 +232,23 @@ update_scope_tree (scope_namex:scope_namexs) (Node name vars children) var =
   else NoChildren -- not found
 
 update_attr new prev = if new /= NoneToken then new else prev
+is_body func = case (head func) of
+                      (_, NoneToken) -> False
+                      _ -> True
 -- (variable name, type, value, funcbody) -> ...
 update_in_variables :: (Name, MyType, Value, FunctionBody) -> [Var] -> [Var]
 update_in_variables _ [] = []
 update_in_variables (name, _type, value, funcb) (varx:varxs) =
   let (namex, typex, valuex, funcbx) = varx in
   if name == namex
-  then ((namex, update_attr _type typex, update_attr value valuex, if (head funcb) /= NoneToken then funcb else funcbx):varxs)
+  then ((namex, update_attr _type typex, update_attr value valuex, if is_body funcb then funcb else funcbx):varxs)
   else case update_in_variables (name, _type, value, funcb) varxs of
     [] -> []
     varxs_new -> (varx : varxs_new)
 
 symtable_update_variable_type :: (Token, MyType) -> MyState -> MyState
 symtable_update_variable_type (Id var_name, _type) [(vars, sk, ts, sp, pc, scope_name, flag)] = do
-  [(symtable_update_variable' scope_name (var_name, _type, NoneToken, [NoneToken]) vars, sk, ts, sp, pc, scope_name, flag)]
+  [(symtable_update_variable' scope_name (var_name, _type, NoneToken, noFuncBody) vars, sk, ts, sp, pc, scope_name, flag)]
 
 update_struct :: SourcePos -> [Token] -> (MyType, Value) -> MyState -> MyState
 update_struct pos [] _ _ = error_msg "Failure updating struct! Line: % Column: %" [showLine pos, showColumn pos]
@@ -256,7 +259,7 @@ update_struct pos (father_struct:access_chain) var_info s = do
   let (_, _, StructLiteral attrbs, _) = lookup_var pos father_struct_name s
   let new_struct_literal = struct_chain_traversal_and_update pos attrbs filtered_access_chain var_info
   --
-  symtable_update_variable (Id father_struct_name, new_struct_literal, [NoneToken]) s
+  symtable_update_variable (Id father_struct_name, new_struct_literal, noFuncBody) s
 
 struct_chain_traversal_and_update :: SourcePos -> [Var] -> [Token] -> (MyType, Value) -> Token
 struct_chain_traversal_and_update pos _ [] _ = error_msg "Failure traversing struct chain Error #7 ! Line: % Column: %" [showLine pos, showColumn pos]
@@ -264,7 +267,7 @@ struct_chain_traversal_and_update pos [] _ _ = error_msg "Failure traversing str
 --
 struct_chain_traversal_and_update pos attrbs [(Id t_name)] (var_type, var_value) =
   if var_is_attrb_of_struct attrbs t_name then do
-    let new_var_value = (t_name, NoneToken, var_value, [NoneToken])
+    let new_var_value = (t_name, NoneToken, var_value, noFuncBody)
     -- TODO: type check this (var_type == t_name.type)
     StructLiteral (update_in_variables new_var_value attrbs)
   else error_msg "Failure traversing struct chain Error #9. Variable '%' is not an attribute! Line: % Column: %" [t_name, showLine pos, showColumn pos]
@@ -273,7 +276,7 @@ struct_chain_traversal_and_update pos attrbs ((Id t_name):ts) var_info =
   if var_is_attrb_of_struct attrbs t_name then do
     case get_var_info_from_scope t_name attrbs of
       (varx_name, _, StructLiteral attrbs', _) -> do
-        let new_var_value = (varx_name, NoneToken, struct_chain_traversal_and_update pos attrbs' ts var_info, [NoneToken])
+        let new_var_value = (varx_name, NoneToken, struct_chain_traversal_and_update pos attrbs' ts var_info, noFuncBody)
         StructLiteral (update_in_variables new_var_value attrbs)
       (varx_name, _, _, _) -> error_msg "Variable '%' is not struct. Error #4" [varx_name]
   else error_msg "'%' is not an attribute of '%'. Error #3" [t_name, show ts]
@@ -310,7 +313,7 @@ update_matrix_content pos (x:xs) new_value n = x:(update_matrix_content pos xs n
 
 assign_variables :: [Token] -> [Value] -> MyState -> MyState
 assign_variables [] [] s = s
-assign_variables (x:xs) (y:ys) s = assign_variables xs ys (symtable_update_variable (x, y, [NoneToken]) s)
+assign_variables (x:xs) (y:ys) s = assign_variables xs ys (symtable_update_variable (x, y, noFuncBody) s)
 
 map_ref_values_to_stack :: MyState -> MyState
 map_ref_values_to_stack [(vars, [], ts, sp, pc, scope_name, flag)] = 
@@ -404,21 +407,25 @@ list_of_n_mxlit :: Int -> Token -> [Token]
 list_of_n_mxlit 0 tk = []
 list_of_n_mxlit n tk = tk:(list_of_n_mxlit (n - 1) tk)
 
+-- wrapper for get_params'
+get_params :: [InfoAndToken] -> ([Name], [Name], [Token], [Token])
+get_params stuff = get_params' (map snd stuff)
+
 -- gets function code and returns: params, param types, function body
-get_params :: [Token] -> ([Name], [Name], [Token], [Token])
-get_params [] = ([], [], [], [])
-get_params (Comma:xs) = get_params xs
-get_params (EndOfParamsToken:xs) = ([], [], [], xs)
-get_params (id:colon_or_question:the_type:xs) = do
+get_params' :: [Token] -> ([Name], [Name], [Token], [Token])
+get_params' [] = ([], [], [], [])
+get_params' (Comma:xs) = get_params' xs
+get_params' (EndOfParamsToken:xs) = ([], [], [], xs)
+get_params' (id:colon_or_question:the_type:xs) = do
   let id_name = case id of
                   (Id name) -> name
                   x -> error_msg "Invalid Param '%' ! Error #1.2" [show x]
-  let (params, ref_params, param_types, func_body) = get_params xs
+  let (params, ref_params, param_types, func_body) = get_params' xs
   case colon_or_question of 
     Question -> (id_name:params, id_name:ref_params, the_type:param_types, func_body)
     Colon -> (id_name:params, ref_params, the_type:param_types, func_body)
     _ -> error_msg "Invalid params in function call! Error #2.1" []
-get_params _ = error_msg "Invalid params in function call! Error #2.2" []
+get_params' _ = error_msg "Invalid params in function call! Error #2.2" []
 
 check_param_amount :: SourcePos -> [a] -> [b] -> ParsecT [InfoAndToken] MyState IO ()
 check_param_amount pos a b = if (length a) == (length b)
@@ -731,6 +738,10 @@ get_arg_names' n (x:xs) = do
     value -> get_arg_names' n xs
 
 ----------------- Others -----------------
+
+dontChangeFunctionBody = [((0, 0), NoneToken)] :: [(InfoAndToken)]
+noFuncBody = [((0, 0), NoneToken)] :: [(InfoAndToken)]
+dontChangeValue = NoneToken
 
 print_state :: ParsecT [InfoAndToken] MyState IO ()
 print_state = do
