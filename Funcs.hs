@@ -316,6 +316,10 @@ symtable_remove_scope (scope_namex:scope_namexs) (Node name vars children) =
   if scope_namex == name then (Node name vars (symtable_remove_scope scope_namexs children))
   else error_msg "Failure in leaving scope '%'" [scope_namex]
 
+pop_stack :: MyState -> MyState
+pop_stack [(vars, [], ts, sp, pc, scope_name, flag)] = error_msg "Failed to pop stack!" []
+pop_stack [(vars, sk:sks, ts, sp, pc, scope_name, flag)] = [(vars, sks, ts, sp, pc, scope_name, flag)]
+
 ----------------- Semantic -----------------
 
 get_flag :: MyState -> Bool
@@ -412,11 +416,11 @@ else error_msg "% Types '%' and/or '%' are not arithmetic! Line: % Column: %" [e
 
 check_integral :: String -> SourcePos -> MyType -> MyType -> Bool
 check_integral extra_msg pos t1 t2 = if (check_eq extra_msg pos t1 t2) && (isIntegral t2) then True
-else error_msg "Types '%' and/or '%' are not integral! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
+else error_msg "% Types '%' and/or '%' are not integral! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
 
 check_bool :: String -> SourcePos -> MyType -> MyType -> Bool
 check_bool extra_msg pos t1 t2 = if (check_eq extra_msg pos t1 t2) && (t2 == TBool) then True
-else error_msg "Types '%' and/or '%' are not boolean! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
+else error_msg "% Types '%' and/or '%' are not boolean! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
 
 -- TODO: support type equivalence!?
 isArithm :: MyType -> Bool
@@ -458,7 +462,7 @@ doOpOnToken (FloatLiteral x) op = FloatLiteral (doUnaryOpFloating x op)
 doOpOnToken (BoolLiteral x) op = BoolLiteral (doUnaryOpBoolean x op)
 
 isEq :: Token -> Bool
-isEq Comp = True
+isEq Equals = True
 isEq Different = True
 isEq _ = False
 
@@ -470,7 +474,7 @@ isOrd Greater = True
 isOrd op = isEq op
 
 doOpEq :: Eq a => a -> a -> Token -> Bool
-doOpEq x y Comp = x == y
+doOpEq x y Equals = x == y
 doOpEq x y Different = x /= y
 
 doOpOrd :: Ord a => a -> a -> Token -> Bool
@@ -486,6 +490,7 @@ doOpIntegral x y Minus = x - y
 doOpIntegral x y Mult = x * y
 doOpIntegral x y Pow = x ^ y
 doOpIntegral _ _ Div = error_msg "'/' operator not allowed for integral types" []
+doOpIntegral _ _ z = error_msg "WTF %" [show z]
 
 doOpFloating :: Floating a => a -> a -> Token -> a
 doOpFloating x y Sum = x + y

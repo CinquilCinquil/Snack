@@ -21,14 +21,14 @@ program = do
             c <- declsToken -- declarations:
             d <- declarations_op
             e <- mainToken -- main:
-            (_, f) <- stmts
+            (_, _, f) <- stmts
             eof
             liftIO (putStrLn "---------\nParsing Complete: ")
             return $ (b:t) ++ [c] ++ d ++ [e] ++ f
 
 parse_block :: ParsecT [InfoAndToken] MyState IO (MyState, [Token])
 parse_block = do
-            (h_type, h) <- block
+            (_, h_type, h) <- block
             s <- getState
             return (s, h)
   
@@ -306,26 +306,26 @@ array_attrib_recursive (_:dims) = do
     --
     return (coord:coords, (b:c) ++ (d:e))
 
-stmts :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+stmts :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 stmts = do
-        (a_type, a) <- stmt
-        (b_type, b) <- stmts_op
+        (a_returned, a_type, a) <- stmt
+        (b_returned, b_type, b) <- if a_returned then return (a_returned, Unit, []) else stmts_op
         -- If only one of them is unit then the return type is the other's
         s <- getState; pos <- getPosition
         if a_type == Unit || b_type == Unit then do
           let resulting_type = (if a_type /= b_type then (if a_type == Unit then b_type else a_type) else a_type)
-          return (resulting_type, a ++ b)
+          return (b_returned, resulting_type, a ++ b)
         else do 
           type_check pos s check_eq a_type b_type
-          return (a_type, a ++ b)
+          return (b_returned, a_type, a ++ b)
 
-stmts_op :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
-stmts_op = (do a <- stmts; return a) <|> (return (Unit, []))
+stmts_op :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
+stmts_op = (do a <- stmts; return a) <|> (return (False, Unit, []))
 
 -- (return_type, tokens)
-stmt :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
-stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
-   <|> (do a <- struct_decl; return (Unit, a))
+stmt :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
+stmt = (do a <- decl_or_atrib_or_access_or_call; return (False, Unit, a))
+   <|> (do a <- struct_decl; return (False, Unit, a))
    <|> (do a <- structures; return a)
    <|> (do -- Return
     a <- returnToken
@@ -333,9 +333,10 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
     c <- semiColonToken
     --
     s <- getState; pos <- getPosition
-    when (get_flag s) $ do updateState (set_return_value pos b_value)
+    when (get_flag s) $ do 
+      updateState (set_return_value pos b_value)
     --
-    return (b_type, (a:b) ++ [c]))
+    return (True, b_type, (a:b) ++ [c]))
    <|> (do -- Print
     a <- printToken
     (_, b_value, _, b) <- exp_rule
@@ -344,7 +345,7 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
     s <- getState
     when (get_flag s) $ liftIO (putStrLn $ showLiteral b_value)
     --
-    return (Unit, (a:b) ++ [c]))
+    return (False, Unit, (a:b) ++ [c]))
    <|> (do -- Read
     a <- readToken
     (_, b_value, _, b:bs) <- term
@@ -361,7 +362,7 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (Unit, a))
       --
       updateState (symtable_update_variable (b, value, dontChangeFunctionBody))
     --
-    return (Unit, (a:b:bs) ++ [c]))
+    return (False, Unit, (a:b:bs) ++ [c]))
 
 fun_decl :: ParsecT [InfoAndToken] MyState IO [Token]
 fun_decl = do
@@ -379,9 +380,10 @@ fun_decl = do
         f <- colonToken
         g <- types
         --
-        updateState (symtable_update_variable_type (b, g)) -- TODO: 'g' is only the return type, add param types?
+        updateState (symtable_update_variable_type (b, g)) -- NOTE: 'g' is only the return type, add param types?
+        updateState (symtable_update_variable (b, dontChangeValue, d ++ [EndOfParamsToken]))
         --
-        (h_type, h) <- block
+        (_, h_type, h) <- block
         --
         let (Id func_name) = b
         s <- getState; pos <- getPosition
@@ -594,13 +596,13 @@ array_access_recursive matrix = do
 function_call :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 function_call a = do
   b <- openParenthesesToken
+  --
+  (c_types, c_values, c_bodies, c) <- args_rule_opt
   -- Type checking
-  s <- getState
-  pos <- getPosition
+  s <- getState; pos <- getPosition
   let (Id func_name) = a
   let (_, func_type, _, func_code) = lookup_var pos func_name s
   let (func_params, func_params_types, func_body) = get_params func_code
-  (c_types, c_values, c_bodies, c) <- args_rule_opt
   check_param_amount pos func_params c_types
   check_types (type_check pos s check_eq) c_types func_params_types
   -- Semantics
@@ -617,7 +619,7 @@ function_call a = do
   --
   s' <- getState; pos' <- getPosition
   let result_value = if is_executing then get_return_value pos' s' else NoneToken
-  -- when is_executing $ desempilhar
+  when (not $ result_value == NoneToken) $ do updateState(pop_stack)
   --
   d <- closeParenthesesToken
   return (func_type, result_value, (a:b:c) ++ [d])
@@ -791,21 +793,21 @@ rel_op = (do a <- leqToken; return a)
 
 ----------------- Structures -----------------
 
-structures :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+structures :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 structures = (do a <- if_rule; return a)
           <|> (do a <- for_rule; return a) 
           <|> (do a <- while_rule; return a)
           <|> (do a <- repeat_rule; return a)
           <|> (do a <- match_rule; return a)
 
-block :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+block :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 block = do
       a <- openBracketsToken
-      (b_type, b) <- stmts_op
+      (b_returned, b_type, b) <- stmts_op
       c <- closeBracketsToken
-      return (b_type, (a:b) ++ [c])
+      return (b_returned, b_type, (a:b) ++ [c])
 
-if_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+if_rule :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 if_rule = do
         a <- ifToken
         (b_type, b_value, _, b) <- exp_rule
@@ -818,31 +820,33 @@ if_rule = do
         s' <- getState;
         let (BoolLiteral boolean_value) = b_value
         if (get_flag s') then updateState (set_flag boolean_value) else updateState (set_flag False)
-        (c_type, c) <- block
+        (c_returned, c_type, c) <- block
         --
         updateState (remove_current_scope_name)
         --
         if (get_flag s') then updateState (set_flag (not boolean_value)) else updateState (set_flag False)
-        (d_type, d) <- else_op
+        (d_returned, d_type, d) <- else_op
         --
         s <- getState; pos <- getPosition
         type_check_with_msg "In If-Else return: " pos s check_eq c_type d_type
         --
-        return (c_type, (a:b) ++ c ++ d)
+        updateState (set_flag $ get_flag s')
+        --
+        return (c_returned || d_returned, c_type, (a:b) ++ c ++ d)
 
-else_op :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+else_op :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 else_op = (do
           a <- elseToken
           --
           updateState (add_current_scope_name "else")
           --
-          (b_type, b) <- (do a <- if_rule; return a) <|> (do a <- block; return a)
+          (b_returned, b_type, b) <- (do a <- if_rule; return a) <|> (do a <- block; return a)
           --
           updateState (remove_current_scope_name)
           --
-          return (b_type, (a:b))) <|> (return (Unit, []))
+          return (b_returned, b_type, (a:b))) <|> (return (False, Unit, []))
 
-for_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+for_rule :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 for_rule = do
     -- Initial structure. Ex: for i : int in [1..2] step 1
     a <- forToken
@@ -860,7 +864,7 @@ for_rule = do
     type_check pos s check_eq b_type f_type
     -- Block
     updateState (set_flag False)
-    (g_type, g) <- block
+    (g_returned, g_type, g) <- block
     updateState (set_flag $ get_flag s)
     -- Semantics
     -- dealing with a left-open interval
@@ -880,7 +884,7 @@ for_rule = do
       parse_structure "for" g' s'' cond_exp
     --
     updateState (remove_current_scope_name)
-    return (g_type, (a:b) ++ [c] ++ d ++ (e:f) ++ g)
+    return (g_returned, g_type, (a:b) ++ [c] ++ d ++ (e:f) ++ g)
 
 -- TODO: put a step option
 range_rule :: ParsecT [InfoAndToken] MyState IO (MyType, (Value, Value, Token), [Token])
@@ -912,7 +916,7 @@ for_declaration = do
               print_state
               return (d, (b:c:[d]))
 
-while_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+while_rule :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 while_rule = do
         -- Initial structure. Ex: While i > 0
         a <- whileToken
@@ -925,7 +929,7 @@ while_rule = do
         type_check pos s check_eq b_type TBool
         -- Block
         updateState (set_flag False)
-        (c_type, c) <- block
+        (c_returned, c_type, c) <- block
         updateState (set_flag $ get_flag s)
         -- Semantics
         let (BoolLiteral cond) = b_value
@@ -933,9 +937,9 @@ while_rule = do
         when ((get_flag s') && cond) $ do parse_structure "while" c s' b
         --
         updateState (remove_current_scope_name)
-        return (c_type, (a:b) ++ c)
+        return (c_returned, c_type, (a:b) ++ c)
 
-repeat_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+repeat_rule :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 repeat_rule = do
         a <- repeatToken
         --
@@ -946,7 +950,7 @@ repeat_rule = do
           -- Block
           s <- getState
           updateState (set_flag False)
-          (c_type, c) <- block
+          (c_returned, c_type, c) <- block
           updateState (set_flag $ get_flag s)
           -- Semantics
           updateState(symtable_insert_variable(Id "$i", Int, (to_int b_value), [])) -- hidden counter variable
@@ -960,12 +964,12 @@ repeat_rule = do
             parse_structure "repeat" c' s' cond_exp
           --
           updateState (remove_current_scope_name)
-          return (c_type, (a:b) ++ c)
+          return (c_returned, c_type, (a:b) ++ c)
         else do
           pos <- getPosition
           error_msg "Expression in Repeat must be integral! Line: % Column: %" [showLine pos, showColumn pos]
 
-match_rule :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+match_rule :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 match_rule = do
         a <- matchToken
         b <- idToken
@@ -973,36 +977,36 @@ match_rule = do
         --
         updateState (add_current_scope_name "match")
         --
-        (d_type, d) <- match_block b
+        (d_returned, d_type, d) <- match_block b
         --
         updateState (remove_current_scope_name)
-        return (d_type, (a:b:c:d))
+        return (d_returned, d_type, (a:b:c:d))
 
-match_block :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+match_block :: Token -> ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 match_block id_token = do
         a <- openBracketsToken
-        (b_type, b) <- form_blocks_opt id_token
+        (b_returned, b_type, b) <- form_blocks_opt id_token
         c <- closeBracketsToken
-        return (b_type, (a:b) ++ [c])
+        return (b_returned, b_type, (a:b) ++ [c])
 
-form_blocks_opt :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+form_blocks_opt :: Token -> ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 form_blocks_opt id_token = (do
-                        a <- formToken
-                        --
-                        updateState (add_current_scope_name "form")
-                        --
-                        (b_type, b) <- form_blocks_start id_token
-                        return (b_type, (a:b))) <|> (return (Unit, []))
+                  a <- formToken
+                  --
+                  updateState (add_current_scope_name "form")
+                  --
+                  (b_returned, b_type, b) <- form_blocks_start id_token
+                  return (b_returned, b_type, (a:b))) <|> (return (False, Unit, []))
 
-form_blocks_start :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+form_blocks_start :: Token -> ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 form_blocks_start id_token = (do
                 a <- idToken
                 b <- openParenthesesToken
                 c <- idsOpt
                 -- TODO: check if the number of arguments match that of the type of id_token
                 d <- closeParenthesesToken
-                (e_type, e) <- form_block id_token
-                return (e_type, (a:b:c) ++ (d:e)))
+                (e_returned, e_type, e) <- form_block id_token
+                return (e_returned, e_type, (a:b:c) ++ (d:e)))
                 <|>
                 (do
                 (a_type, _, a) <- literal
@@ -1012,22 +1016,22 @@ form_blocks_start id_token = (do
                 let (_, id_token_type, _, _) = lookup_var pos id_token_name s
                 type_check pos s check_eq id_token_type a_type
                 --
-                (b_type, b) <- form_block id_token
-                return (b_type, (a:b)))
+                (b_returned, b_type, b) <- form_block id_token
+                return (b_returned, b_type, (a:b)))
 
-form_block :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, [Token])
+form_block :: Token -> ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 form_block id_token = do
             a <- colonToken
-            (b_type, b) <- stmts_op
+            (b_returned, b_type, b) <- stmts_op
             --
             updateState (remove_current_scope_name) -- end of previous form
             --
-            (c_type, c) <- form_blocks_opt id_token
+            (c_returned, c_type, c) <- if b_returned then return (b_returned, Unit, []) else form_blocks_opt id_token
             --
             s <- getState; pos <- getPosition
             type_check_with_msg "In Match-TForm return: " pos s check_eq b_type c_type
             --
-            return (c_type, (a:b) ++ c)
+            return (c_returned, c_type, (a:b) ++ c)
 
 idsOpt :: ParsecT [InfoAndToken] MyState IO [Token]
 idsOpt = (do a <- idToken; b <- ids; return (a:b)) <|> (return [])
