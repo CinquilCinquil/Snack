@@ -630,7 +630,9 @@ function_call a = do
   s <- getState; pos <- getPosition
   let (Id func_name) = a
   let (_, func_type, _, func_code) = lookup_var pos func_name s
-  let (func_params, ref_params, func_params_types, func_body) = get_params func_code
+  let func_code' = condense_extensive_types func_code
+  liftIO (print func_code')
+  let (func_params, ref_params, func_params_types, func_body) = get_params func_code'
   let c_names = get_arg_names c
   check_param_amount pos func_params c_types
   check_types (type_check pos s check_eq) c_types func_params_types

@@ -734,6 +734,27 @@ get_arg_names' n (x:xs) = do
     CloseParentheses -> get_arg_names' (n - 1) xs
     value -> get_arg_names' n xs
 
+condense_extensive_types :: [InfoAndToken] -> [InfoAndToken]
+condense_extensive_types [] = []
+condense_extensive_types (a:b:c:d:xs) = do
+  case map snd [a, b, c, d] of
+    [(Matrix Unit []), Smaller, x, Greater] -> do
+      (fst a, Matrix x (get_dimensions_from_tokens $ map snd xs)):(condense_extensive_types' xs)
+    [a', b', c', d'] -> a:(condense_extensive_types (b:c:d:xs))
+condense_extensive_types (x:xs) = x:xs
+
+condense_extensive_types' :: [InfoAndToken] -> [InfoAndToken]
+condense_extensive_types' (((_, _), OpenParentheses):xs) = condense_extensive_types' xs
+condense_extensive_types' (((_, _), CloseParentheses):xs) = condense_extensive_types xs
+condense_extensive_types' (((_, _), _):xs) = condense_extensive_types' xs
+
+get_dimensions_from_tokens :: [Token] -> [Int]
+get_dimensions_from_tokens [] = []
+get_dimensions_from_tokens (OpenParentheses:xs) = get_dimensions_from_tokens xs
+get_dimensions_from_tokens (CloseParentheses:xs) = []
+get_dimensions_from_tokens (Comma:xs) = get_dimensions_from_tokens xs
+get_dimensions_from_tokens ((IntLiteral x):xs) = x:(get_dimensions_from_tokens xs)
+
 ----------------- Others -----------------
 
 dontChangeFunctionBody = [((0, 0), NoneToken)] :: [(InfoAndToken)]
