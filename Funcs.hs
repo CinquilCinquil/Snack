@@ -328,6 +328,13 @@ get_flag [(vars, sk, ts, sp, pc, sn, flag)] = flag
 set_flag :: Bool -> MyState -> MyState
 set_flag flag [(vars, sk, ts, sp, pc, sn, old_flag)] = [(vars, sk, ts, sp, pc, sn, flag)]
 
+false_flag_if f = if f then set_flag False else (\s -> s)
+
+getStateFlag :: ParsecT [InfoAndToken] MyState IO (Bool)
+getStateFlag = do
+    s <- getState
+    return (get_flag s)
+
 get_return_value :: SourcePos -> MyState -> Value
 get_return_value pos [(_, stack, _, _, _, _, _)] = 
   case stack of

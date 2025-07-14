@@ -218,7 +218,8 @@ init_or_decl id_token = (do -- Assignment
                 --
                 s <- getState; pos <- getPosition
                 type_check pos s check_eq id_token exp_type
-                updateState (symtable_update_variable (id_token, exp_value, dontChangeFunctionBody))
+                when (get_flag s) $ do
+                  updateState (symtable_update_variable (id_token, exp_value, dontChangeFunctionBody))
                 --
                 return (a:b))
                 <|>
@@ -233,7 +234,8 @@ init_or_decl id_token = (do -- Assignment
                 s' <- getState; pos' <- getPosition
                 type_check pos' s' check_eq id_token exp_type
                 let var_value = if c == [] then get_default_value pos' s' b else exp_value
-                updateState (symtable_update_variable (id_token, var_value, dontChangeFunctionBody))
+                when (get_flag s') $ do
+                  updateState (symtable_update_variable (id_token, var_value, dontChangeFunctionBody))
                 print_state
                 --
                 return (a:b:c))
@@ -278,11 +280,12 @@ array_attrib a = do
         (d_type, d_value, _, d) <- exp_rule
         e <- semiColonToken
         -- Type check
-        pos' <- getPosition
+        s <- getState; pos' <- getPosition
         type_check pos' s check_eq matrix_type d_type
         --
         let new_matrix_value = update_matrix_value pos' a_value coords d_value
-        updateState(symtable_update_variable (a, new_matrix_value, dontChangeFunctionBody))
+        when (get_flag s) $ do
+          updateState(symtable_update_variable (a, new_matrix_value, dontChangeFunctionBody))
         --
         return ((a:b) ++ (c:d) ++ [e])
       _ -> error_msg "Variable '%' is not a matrix or a list! Line: % Column: %" [showLine pos, showColumn pos]
@@ -309,15 +312,26 @@ array_attrib_recursive (_:dims) = do
 stmts :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 stmts = do
         (a_returned, a_type, a) <- stmt
-        (b_returned, b_type, b) <- if a_returned then return (a_returned, Unit, []) else stmts_op
+        --
+        original_flag <- getStateFlag
+        updateState(false_flag_if a_returned)
+        --
+        (b_returned, b_type, b) <- stmts_op
+        let returned = b_returned || a_returned
         -- If only one of them is unit then the return type is the other's
         s <- getState; pos <- getPosition
         if a_type == Unit || b_type == Unit then do
           let resulting_type = (if a_type /= b_type then (if a_type == Unit then b_type else a_type) else a_type)
-          return (b_returned, resulting_type, a ++ b)
+          --
+          updateState(set_flag original_flag)
+          --
+          return (returned, resulting_type, a ++ b)
         else do 
           type_check pos s check_eq a_type b_type
-          return (b_returned, a_type, a ++ b)
+          --
+          updateState(set_flag original_flag)
+          --
+          return (returned, a_type, a ++ b)
 
 stmts_op :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 stmts_op = (do a <- stmts; return a) <|> (return (False, Unit, []))
@@ -414,8 +428,8 @@ params func_name = do
   (d_type, d_value, d) <- atrib_opt c
   --
   s' <- getState; pos' <- getPosition
-  let var_value = if d == [] then get_default_value pos' s' c else d_value
-  updateState (symtable_update_variable (a, var_value, dontChangeFunctionBody))
+  --let var_value = if d == [] then get_default_value pos' s' c else d_value -- feature removed from language due to time :(
+  --updateState (symtable_update_variable (a, var_value, dontChangeFunctionBody))
   liftIO (putStrLn "params_declaration:")
   print_state
   --
@@ -444,7 +458,8 @@ struct_decl = do
             --
             updateState (remove_current_scope_name)
             --
-            updateState (symtable_update_variable (b, StructLiteral struct_vars, dontChangeFunctionBody))
+            when (get_flag s) $ do
+              updateState (symtable_update_variable (b, StructLiteral struct_vars, dontChangeFunctionBody))
             --
             d <- semiColonToken
             return ((a:b:c) ++ [d])
@@ -833,12 +848,17 @@ if_rule = do
         if (get_flag s') then updateState (set_flag (not boolean_value)) else updateState (set_flag False)
         (d_returned, d_type, d) <- else_op
         --
-        s <- getState; pos <- getPosition
-        type_check_with_msg "In If-Else return: " pos s check_eq c_type d_type
-        --
         updateState (set_flag $ get_flag s')
-        --
-        return (c_returned || d_returned, c_type, (a:b) ++ c ++ d)
+        let returned = c_returned || d_returned
+        let tokens = (a:b) ++ c ++ d
+        -- Type check
+        s <- getState; pos <- getPosition
+        if c_type == Unit || d_type == Unit then do
+          let resulting_type = (if c_type /= d_type then (if c_type == Unit then d_type else c_type) else c_type)
+          return (returned, resulting_type, tokens)
+        else do
+          type_check_with_msg "In If-Else return: " pos s check_eq c_type d_type
+          return (returned, c_type, tokens)
 
 else_op :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 else_op = (do
@@ -1032,12 +1052,17 @@ form_block id_token = do
             --
             updateState (remove_current_scope_name) -- end of previous form
             --
-            (c_returned, c_type, c) <- if b_returned then return (b_returned, Unit, []) else form_blocks_opt id_token
+            original_flag <- getStateFlag
+            updateState(false_flag_if b_returned)
+            --
+            (c_returned, c_type, c) <- form_blocks_opt id_token
             --
             s <- getState; pos <- getPosition
             type_check_with_msg "In Match-TForm return: " pos s check_eq b_type c_type
             --
-            return (c_returned, c_type, (a:b) ++ c)
+            updateState(set_flag original_flag)
+            --
+            return (b_returned || c_returned, c_type, (a:b) ++ c)
 
 idsOpt :: ParsecT [InfoAndToken] MyState IO [Token]
 idsOpt = (do a <- idToken; b <- ids; return (a:b)) <|> (return [])
