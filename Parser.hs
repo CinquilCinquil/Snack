@@ -28,9 +28,11 @@ program = do
 
 parse_block :: Bool -> ParsecT [InfoAndToken] MyState IO (MyState, [Token])
 parse_block b = do
+parse_block :: Bool -> ParsecT [InfoAndToken] MyState IO (MyState, [Token])
+parse_block b = do
             (_, h_type, h) <- block
             --
-            when b $ do updateState(map_ref_values_to_stack)
+            when b $ updateState(map_ref_values_to_stack)
             --
             s <- getState
             return (s, h)
