@@ -379,7 +379,7 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (False, Unit, a))
       updateState (symtable_update_variable (b, value, dontChangeFunctionBody))
     --
     return (False, Unit, (a:b:bs) ++ [c]))
-    <|> (do -- Error
+   <|> (do -- Error
      a <- errorCmdToken
      (_, b_value, _, b) <- exp_rule
      c <- semiColonToken
@@ -391,8 +391,7 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (False, Unit, a))
       liftIO (putStrLn "\n###############")
       error ""
      --
-     return (False, Unit, (a:b) ++ [c])
-    )
+     return (False, Unit, (a:b) ++ [c]))
 
 fun_decl :: ParsecT [InfoAndToken] MyState IO [Token]
 fun_decl = do
@@ -842,7 +841,7 @@ uminus_remaining = (do
             return (TBool, result_value, a:b))
 
 sum_or_minus :: ParsecT [InfoAndToken] MyState IO (Token)
-sum_or_minus = (do a <- sumToken; return a) <|> (do a <- minusToken; return a)
+sum_or_minus = (do a <- sumToken; return a) <|> (do a <- minusToken; return a) <|> (do a <- concatToken; return a)
 
 mult_or_div :: ParsecT [InfoAndToken] MyState IO (Token)
 mult_or_div = (do a <- divToken; return a) <|> (do a <- multToken; return a)

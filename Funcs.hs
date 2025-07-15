@@ -492,6 +492,7 @@ isArithm :: MyType -> Bool
 isArithm Nat = True
 isArithm Int = True
 isArithm Float = True
+isArithm TString = True
 isArithm _ = False 
 
 -- TODO: support type equivalence!?
@@ -517,7 +518,10 @@ doOpOnTokens (BoolLiteral x) (BoolLiteral y) op
   | isEq op = BoolLiteral (doOpEq x y op)
   | otherwise = BoolLiteral (doOpBoolean x y op)
 --
-doOpOnTokens (StringLiteral x) (StringLiteral y) op = BoolLiteral (doOpEq x y op)
+doOpOnTokens (StringLiteral x) (StringLiteral y) op
+  | op == Concat = StringLiteral (x ++ y)
+  | isEq op = BoolLiteral (doOpEq x y op)
+  | otherwise = error_msg "Operation '%' is not supported for string" [show op]
 -- ...
 
 doOpOnToken :: Token -> Token -> Token
@@ -555,7 +559,7 @@ doOpIntegral x y Minus = x - y
 doOpIntegral x y Mult = x * y
 doOpIntegral x y Pow = x ^ y
 doOpIntegral _ _ Div = error_msg "'/' operator not allowed for integral types" []
-doOpIntegral _ _ z = error_msg "WTF %" [show z]
+doOpIntegral _ _ z = error_msg "Non-supported operator % for integrals" [show z]
 
 doOpFloating :: Floating a => a -> a -> Token -> a
 doOpFloating x y Sum = x + y
@@ -563,10 +567,12 @@ doOpFloating x y Minus = x - y
 doOpFloating x y Mult = x * y
 doOpFloating x y Div = x / y
 doOpFloating x y Pow = x ** y
+doOpFloating _ _ z = error_msg "Non-supported operator % for floats" [show z]
 
 doOpBoolean :: Bool -> Bool -> Token -> Bool
 doOpBoolean x y And = x && y
 doOpBoolean x y Or = x || y
+doOpBoolean _ _ z = error_msg "Non-supported operator % for booleans" [show z]
 
 doUnaryOpIntegral :: Integral a => a -> Token -> a
 doUnaryOpIntegral x Minus = -x

@@ -74,6 +74,7 @@ minusToken = tokenParser Minus
 divToken = tokenParser Div
 multToken = tokenParser Mult
 powToken = tokenParser Pow
+concatToken = tokenParser Concat
 
 -- Declarations
 

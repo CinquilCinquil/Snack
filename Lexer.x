@@ -62,6 +62,7 @@ tokens :-
   "and"                                 { \p _ -> (getLC p, And)}
   "or"                                  { \p _ -> (getLC p, Or)}
   "=/="                                 { \p _ -> (getLC p, Different)}
+  "++"                                  { \p _ -> (getLC p, Concat) }
   "+"                                   { \p _ -> (getLC p, Sum) }
   "-"                                   { \p _ -> (getLC p, Minus) }
   "/"                                   { \p _ -> (getLC p, Div) }
@@ -159,6 +160,7 @@ data Token =
   Div |
   Mult |
   Pow |
+  Concat |
   -- Declarations
   Fun |
   Vars |
