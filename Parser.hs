@@ -26,11 +26,11 @@ program = do
             liftIO (putStrLn "---------\nParsing Complete: ")
             return $ (b:t) ++ [c] ++ d ++ [e] ++ f
 
-parse_block :: ParsecT [InfoAndToken] MyState IO (MyState, [Token])
-parse_block = do
+parse_block :: Bool -> ParsecT [InfoAndToken] MyState IO (MyState, [Token])
+parse_block b = do
             (_, h_type, h) <- block
             --
-            updateState(map_ref_values_to_stack)
+            when b $ updateState(map_ref_values_to_stack)
             --
             s <- getState
             return (s, h)
@@ -1203,7 +1203,7 @@ defaultValue = StringLiteral "Default Value"
 
 parse_function :: Name -> [InfoAndToken] -> MyState -> ParsecT [InfoAndToken] MyState IO ()
 parse_function func_name func_body s = do
-  result <- liftIO (runParserT parse_block s (replace '%' [func_name] "Parsing error inside '%' call!") func_body)
+  result <- liftIO (runParserT (parse_block True) s (replace '%' [func_name] "Parsing error inside '%' call!") func_body)
   let new_state = case result of
                 Left err -> error (show err)
                 Right (new_state, ans) -> new_state
@@ -1213,7 +1213,7 @@ parse_function func_name func_body s = do
 parse_structure :: Name -> [Token] -> MyState -> [Token] -> ParsecT [InfoAndToken] MyState IO ()
 parse_structure structure_name structure_body s cond_exp = do
   -- Parsing structure body
-  result <- liftIO (runParserT parse_block s (replace '%' [structure_name] "Parsing error inside '%'!") (to_infoAndToken structure_body))
+  result <- liftIO (runParserT (parse_block False) s (replace '%' [structure_name] "Parsing error inside '%'!") (to_infoAndToken structure_body))
   let new_state = case result of
                 Left err -> error (show err)
                 Right (new_state, ans) -> new_state
