@@ -255,15 +255,16 @@ struct_attrib a = do
                             (_, _, StructLiteral vars, _) -> vars
                             _ -> error_msg "Variable '%' is not a struct! Line: % Column: %" [name, showLine pos, showColumn pos]
                 --
-                (_, _, _, b_struct_tree) <- struct_access' a vars
+                (b_type, _, _, b_struct_tree) <- struct_access' a vars
                 --
                 c <- assignToken
                 (d_type, d_value, _, d) <- exp_rule
                 e <- semiColonToken
+                -- Type check
+                s' <- getState; pos' <- getPosition
+                type_check pos' s' check_eq b_type d_type
                 --
-                pos' <- getPosition
                 updateState (update_struct pos' b_struct_tree (d_type, d_value))
-                print_state
                 --
                 return (b_struct_tree ++ [c] ++ d ++ [e])
 
@@ -554,7 +555,7 @@ struct_access_or_function_call vars = do
       b <- (do b <- type_cons_rule a; return b)
             <|> (do b <- array_access a; return b)
             <|> (do (b_type, b_value, b) <- function_call a; return (b_type, b_value, noFuncBody, b))
-            <|> (struct_access' a vars)
+            <|> (struct_access' a vars) -- FIX: aqui não é vars, é o vars de 'a'
       return b
 
 struct_access :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
@@ -572,21 +573,22 @@ struct_access vars = do
 
 struct_access' :: Token -> [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access' a vars = (do
-      b <- periodToken
-      (c_type, c_value, c_body, c) <- struct_access vars
-      --
-      let (attrb_type, attrb_value, attrb_body) = case c of
-                                        [(Id last_in_chain)] -> do 
-                                          let (_, attrb_type, attrb_value, attrb_body) = get_var_info_from_scope last_in_chain vars
-                                          (attrb_type, attrb_value, attrb_body)
-                                        _ -> (c_type, c_value, c_body)
-      --
-      return (attrb_type, attrb_value, attrb_body, a:b:c))
-      <|> (do
-      s <- getState; pos <- getPosition
-      let (Id name) = a
-      let (_, a_type, a_value, a_body) = lookup_var pos name s
-      return (a_type, a_value, a_body, [a]))
+  b <- periodToken
+  (c_type, c_value, c_body, c) <- struct_access vars
+  --
+  let (attrb_type, attrb_value, attrb_body) = case c of
+                            [(Id last_in_chain)] -> do 
+                              -- Note: Over here 'vars' is the local scope the struct b in: ...a.b.c
+                              let (_, attrb_type, attrb_value, attrb_body) = get_var_info_from_scope last_in_chain vars
+                              (attrb_type, attrb_value, attrb_body)
+                            _ -> (c_type, c_value, c_body)
+  --
+  return (attrb_type, attrb_value, attrb_body, a:b:c))
+  <|> (do
+  s <- getState; pos <- getPosition
+  let (Id name) = a
+  let (_, a_type, a_value, a_body) = lookup_var pos name s
+  return (a_type, a_value, a_body, [a]))
 
 -- funny enough there aren't any arrays in the language
 array_access :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
