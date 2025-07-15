@@ -50,6 +50,7 @@ tokens :-
   "toString"                            { \p _ -> (getLC p, ToStringToken) }
   "toBool"                              { \p _ -> (getLC p, ToBoolToken) }
   "toChar"                              { \p _ -> (getLC p, ToCharToken) }
+  "error"                               { \p _ -> (getLC p, ErrorCmdToken) }
   ":="                                  { \p _ -> (getLC p, Assign) }
   "=="                                  { \p _ -> (getLC p, Comp) }
   "="                                   { \p _ -> (getLC p, Equals) }
@@ -141,6 +142,7 @@ data Token =
   ToStringToken |
   ToBoolToken |
   ToCharToken |
+  ErrorCmdToken |
   Assign |
   Comp |
   Equals |

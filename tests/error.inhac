@@ -1,0 +1,8 @@
+types:
+decls:
+main:
+    a : int;
+    eat a;
+    if (a > 0) {
+        error "haha";
+    }

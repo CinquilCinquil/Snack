@@ -379,6 +379,20 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (False, Unit, a))
       updateState (symtable_update_variable (b, value, dontChangeFunctionBody))
     --
     return (False, Unit, (a:b:bs) ++ [c]))
+    <|> (do -- Error
+     a <- errorCmdToken
+     (_, b_value, _, b) <- exp_rule
+     c <- semiColonToken
+     --
+     s <- getState
+     when (get_flag s) $ do
+      liftIO (putStrLn "### ERROR CALL FROM INSIDE THE PROGRAM ###\n")
+      liftIO (putStrLn $ showLiteral b_value)
+      liftIO (putStrLn "\n###############")
+      error ""
+     --
+     return (False, Unit, (a:b) ++ [c])
+    )
 
 fun_decl :: ParsecT [InfoAndToken] MyState IO [Token]
 fun_decl = do

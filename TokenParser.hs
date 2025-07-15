@@ -56,6 +56,7 @@ toFloatToken = tokenParser ToFloatToken
 toStringToken = tokenParser ToStringToken
 toBoolToken = tokenParser ToBoolToken
 toCharToken = tokenParser ToCharToken
+errorCmdToken = tokenParser ErrorCmdToken
 
 assignToken = tokenParser Assign
 compToken = tokenParser Comp
