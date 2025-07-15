@@ -146,7 +146,7 @@ type_cons_rule_remaining constructor_name constructor_args type_params = do
 type_cons_args :: Name -> [MyType] -> [Name] -> [MyType] -> ParsecT [InfoAndToken] MyState IO (Value, [Token])
 type_cons_args constructor_name constructor_args type_params type_params_values = do
         if constructor_args == [] then
-          return (TypeLiteral constructor_name [] [], [Id constructor_name])
+          return (TypeLiteral constructor_name [] [], [])
         else do
           b <- openParenthesesToken
           (c_types, c_values, _, c) <- args_rule_opt
@@ -656,17 +656,18 @@ function_call a = do
   let (Id func_name) = a
   let (_, func_type, _, func_code) = lookup_var pos func_name s
   let func_code' = condense_extensive_types func_code
-  liftIO (print func_code')
   let (func_params, ref_params, func_params_types, func_body) = get_params func_code'
   let c_names = get_arg_names c
+  let func_params_types' = convert_id_to_type_literal s func_params_types
+  let c_types' = convert_id_to_type_literal s c_types
   check_param_amount pos func_params c_types
-  check_types (type_check pos s check_eq) c_types func_params_types
+  check_types (type_check pos s check_eq) c_types' func_params_types'
   check_correct_ref_values pos func_params ref_params c_names
   -- Semantics
   let is_executing = get_flag s
   when is_executing $ do
         updateState (add_current_scope_name "fun")
-        updateState (load_params func_params func_params_types c_values c_bodies)
+        updateState (load_params func_params func_params_types' c_values c_bodies)
         updateState (add_call_to_stack func_name (map (\s -> (Id s, NoneToken))  ref_params))
         --
         s' <- getState

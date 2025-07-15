@@ -456,7 +456,7 @@ type_check_with_msg extra_msg pos state check var_name _type = type_check' extra
 
 type_check' :: String -> SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
 -- TODO: _type (Id var_name) case 
--- TODO: (Id var_name) (Id var_name) case 
+type_check' extra_msg pos _ check (Id name1) (Id name2) = if check extra_msg pos (Id name1) (Id name2) then return () else error ""
 type_check' extra_msg pos state check (Id var_name) _type = do
     let (_, var_type, _, _) = lookup_var pos var_name state
     if check extra_msg pos var_type _type then return () else error ""
@@ -777,6 +777,16 @@ get_dimensions_from_tokens (OpenParentheses:xs) = get_dimensions_from_tokens xs
 get_dimensions_from_tokens (CloseParentheses:xs) = []
 get_dimensions_from_tokens (Comma:xs) = get_dimensions_from_tokens xs
 get_dimensions_from_tokens ((IntLiteral x):xs) = x:(get_dimensions_from_tokens xs)
+
+convert_id_to_type_literal :: MyState -> [Token] -> [Token]
+convert_id_to_type_literal _ [] = []
+convert_id_to_type_literal s (x:xs) = do
+  case x of
+    (Id name) -> do
+      case lookup_type s name of
+        ("", [], []) -> (x:(convert_id_to_type_literal s xs))
+        (type_name, type_params, _) -> ((Type type_name (map (\s -> Id s) type_params)):(convert_id_to_type_literal s xs))
+    _ -> (x:(convert_id_to_type_literal s xs))
 
 ----------------- Others -----------------
 
