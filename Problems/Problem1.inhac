@@ -4,4 +4,4 @@ main:
     c : int;
     (x, y, c) := (4.0, 7.6, 5);
 
-    spit (x ^ 2 + y + int_to_float(c));
+    spit (x ^ 2 + y + int_to_float(c)); 
