@@ -886,16 +886,18 @@ if_rule = do
         --
         s' <- getState;
         let (BoolLiteral boolean_value) = b_value
-        if (get_flag s') then updateState (set_flag boolean_value) else updateState (set_flag False)
+        let new_flag_value_if = if (get_flag s') then boolean_value else False
+        updateState (set_flag new_flag_value_if)
         (c_returned, c_type, c) <- block
         --
         updateState (remove_current_scope_name)
         --
-        if (get_flag s') then updateState (set_flag (not boolean_value)) else updateState (set_flag False)
+        let new_flag_value_else = if (get_flag s') then not boolean_value else False
+        updateState (set_flag new_flag_value_else)
         (d_returned, d_type, d) <- else_op
         --
         updateState (set_flag $ get_flag s')
-        let returned = c_returned || d_returned
+        let returned = (new_flag_value_if && c_returned) || (new_flag_value_else && d_returned)
         let tokens = (a:b) ++ c ++ d
         -- Type check
         s <- getState; pos <- getPosition

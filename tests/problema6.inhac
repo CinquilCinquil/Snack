@@ -8,7 +8,6 @@ decls:
             form Leaf():
                 raiz := Branch(val, Leaf, Leaf);
             form Branch(x, left, right):
-                spit "cai nesse caso";
                 if(val < x) {
                     insert(left, val);
                 } else {
