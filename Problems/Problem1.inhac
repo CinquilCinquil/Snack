@@ -1,7 +1,8 @@
+types:
+decls:
 main:
-    x : float;
-    y : float;
-    c : int;
-    (x, y, c) := (4.0, 7.6, 5);
+    x : float := 4.0;
+    y : float := 7.6;
+    c : int := 5;
 
-    spit (x ^ 2 + y + int_to_float(c)); 
+    spit (x ^ 2.0 + y + toFloat(c)); 

@@ -1,35 +1,31 @@
+types:
+decls:
 main:
-    x : int := 0;
+    x : float;
     c1 : int := 0;
     c2 : int := 0;
     c3 : int := 0;
     c4 : int := 0;
 
-    while (x >= 0) {
-        eat x;
-        if (0 <= x and x <= 25){
+    eat x;
+
+    while (x >= 0.0) {
+        if ((0.0 <= x) and (x <= 25.0)){
             c1 := c1 + 1;
         }
-        else if (26 <= x and x <= 50){
+        else if ((26.0 <= x) and (x <= 50.0)){
             c2 := c2 + 1;
         }
-        else if (51 <= x and x <= 75){
+        else if ((51.0 <= x) and (x <= 75.0)){
             c3 := c3 + 1;
         }
-        else if (76 <= x and x <= 100){
+        else if ((76.0 <= x) and (x <= 100.0)){
             c4 := c4 + 1;
         }
+        eat x;
     }
 
-    spit "There are ";
-    spit c1;
-    spit " numbers in [0,25]\n";
-    spit "There are ";
-    spit c2;
-    spit " numbers in [26,50]\n";
-    spit "There are ";
-    spit c3;
-    spit " numbers in [51,75]\n";
-    spit "There are ";
-    spit c4;
-    spit " numbers in [76,100]\n";
+    spit ("There are " ++ toString(c1) ++ " numbers in [0,25]");
+    spit ("There are " ++ toString(c2) ++ " numbers in [26,50]");
+    spit ("There are " ++ toString(c3) ++ " numbers in [51,75]");
+    spit ("There are " ++ toString(c4) ++ " numbers in [76,100]");
