@@ -657,7 +657,7 @@ function_call a = do
   let (_, func_type, _, func_code) = lookup_var pos func_name s
   let func_code' = condense_extensive_types func_code
   let (func_params, ref_params, func_params_types, func_body) = get_params func_code'
-  let c_names = get_arg_names c
+  let c_names = get_arg_names (remove_exp_from_args 0 False [] c)
   let func_params_types' = convert_id_to_type_literal s func_params_types
   let c_types' = convert_id_to_type_literal s c_types
   check_param_amount pos func_params c_types

@@ -484,6 +484,7 @@ check_correct_ref_values pos (x:xs) (y:ys) (z:zs) = do
   if x `is_in_list` (y:ys) then do
     case z of
       (Id _) -> check_correct_ref_values pos xs ys zs
+      NoneToken -> error_msg "Cannot expressions when passing by reference ! Line: % Column: %" [showLine pos, showColumn pos]
       _ -> error_msg "Cannot use literals when passing by reference ! Line: % Column: %" [showLine pos, showColumn pos]
   else check_correct_ref_values pos xs (y:ys) zs
 
@@ -736,7 +737,7 @@ get_dim xs = do
 get_ref_args :: Eq b => [a] -> [b] -> [b] -> [a]
 get_ref_args _ _ [] = []
 get_ref_args (x:xs) (y:ys) (z:zs) = do
-  if y `is_in_list` (z:zs) then x:(get_ref_args xs ys zs) else (get_ref_args xs ys zs)
+  if y `is_in_list` (z:zs) then x:(get_ref_args xs ys zs) else (get_ref_args xs ys (z:zs))
 
 -- TODO: adapt for when function call is present
 get_arg_names :: [Token] -> [Token]
@@ -756,6 +757,22 @@ get_arg_names' n (x:xs) = do
     OpenParentheses -> get_arg_names' (n + 1) xs
     CloseParentheses -> get_arg_names' (n - 1) xs
     value -> get_arg_names' n xs
+
+remove_exp_from_args :: Int -> Bool -> [Token] -> [Token] -> [Token]
+remove_exp_from_args _ b ys [] = if b then [NoneToken] else ys
+remove_exp_from_args 0 b ys (x:xs) = do
+  case x of
+    (Id name) -> remove_exp_from_args 0 b ((Id name):ys) xs
+    Comma -> (if b then [NoneToken] else ys) ++ (remove_exp_from_args 0 False [] xs)
+    OpenParentheses -> remove_exp_from_args 1 b (OpenParentheses:ys) xs
+    _ -> remove_exp_from_args 0 True ys xs
+remove_exp_from_args n b ys (x:xs) = do
+  case x of
+    (Id name) -> remove_exp_from_args n b ((Id name):ys) xs
+    Comma -> remove_exp_from_args n b (Comma:ys) xs
+    OpenParentheses -> remove_exp_from_args (n + 1) b (OpenParentheses:ys) xs
+    CloseParentheses -> remove_exp_from_args (n - 1) b (CloseParentheses:ys) xs
+    _ -> remove_exp_from_args n b ys xs
 
 condense_extensive_types :: [InfoAndToken] -> [InfoAndToken]
 condense_extensive_types [] = []
