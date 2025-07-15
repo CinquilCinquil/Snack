@@ -484,7 +484,9 @@ check_correct_ref_values pos (x:xs) (y:ys) (z:zs) = do
   if x `is_in_list` (y:ys) then do
     case z of
       (Id _) -> check_correct_ref_values pos xs ys zs
-      _ -> error_msg "Cannot use literals when passing by reference ! Line: % Column: %" [showLine pos, showColumn pos]
+      p -> do 
+        liftIO (print p)
+        error_msg "Cannot use literals when passing by reference ! Line: % Column: %" [showLine pos, showColumn pos]
   else check_correct_ref_values pos xs (y:ys) zs
 
 -- TODO: support type equivalence!?
