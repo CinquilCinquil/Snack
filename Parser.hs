@@ -1043,32 +1043,51 @@ form_blocks_opt id_token = (do
 
 form_blocks_start :: Token -> ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 form_blocks_start id_token = (do
-                a <- idToken
-                b <- openParenthesesToken
-                c <- idsOpt
-                -- TODO: check if the number of arguments match that of the type of id_token
-                d <- closeParenthesesToken
-                (e_returned, e_type, e) <- form_block id_token NoneToken ErrorToken
-                return (e_returned, e_type, (a:b:c) ++ (d:e)))
-                <|>
-                (do
-                (a_type, a_value, a) <- literal
-                --
-                s <- getState; pos <- getPosition
-                let (Id id_token_name) = id_token
-                let (_, id_token_type, id_token_value, _) = lookup_var pos id_token_name s
-                type_check pos s check_eq id_token_type a_type
-                --
-                (b_returned, b_type, b) <- form_block id_token id_token_value a_value
-                --
-                return (b_returned, b_type, (a:b)))
+    a <- idToken
+    b <- openParenthesesToken
+    c <- idsOpt
+    d <- closeParenthesesToken
+    -- Type check
+    s' <- getState; pos' <- getPosition
+    let (Id a_name) = a
+    let (_, _, cons_forms) = case lookup_type_constructor s' a_name of
+                              ("", _, _) -> error_msg "Invalid type constructor! Line: % Column: %" [showLine pos', showColumn pos']
+                              cons -> cons
+    let form_variables = get_arg_names c
+    check_param_amount pos' form_variables cons_forms
+    -- Case matched?
+    let (Id id_name) = id_token
+    let (_, _, TypeLiteral id_cons_name id_cons_args _, _) = lookup_var pos' id_name s'
+    let case_matched = id_cons_name == a_name
+    -- Declaring form variables
+    let form_var_names = map (\(Id x) -> x) form_variables
+    let form_var_bodies = map (\x -> []) cons_forms
+    if (case_matched && get_flag s') then do
+      updateState(load_params form_var_names cons_forms id_cons_args form_var_bodies)
+    else do
+      let form_var_values = map (get_default_value pos' s') cons_forms
+      updateState(load_params form_var_names cons_forms form_var_values form_var_bodies)
+    (e_returned, e_type, e) <- form_block id_token case_matched
+    return (e_returned, e_type, (a:b:c) ++ (d:e)))
+    <|>
+    (do
+    (a_type, a_value, a) <- literal
+    --
+    s <- getState; pos <- getPosition
+    let (Id id_token_name) = id_token
+    let (_, id_token_type, id_token_value, _) = lookup_var pos id_token_name s
+    type_check pos s check_eq id_token_type a_type
+    --
+    (b_returned, b_type, b) <- form_block id_token (id_token_value == a_value)
+    --
+    return (b_returned, b_type, (a:b)))
 
-form_block :: Token -> Value -> Value -> ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
-form_block id_token id_token_value this_case_value = do
+form_block :: Token -> Bool -> ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
+form_block id_token case_matched = do
             a <- colonToken
             --
             original_flag' <- getStateFlag
-            updateState(false_flag_if (not $ this_case_value == id_token_value))
+            updateState(false_flag_if (not case_matched))
             --
             (b_returned, b_type, b) <- stmts_op
             --
@@ -1076,7 +1095,7 @@ form_block id_token id_token_value this_case_value = do
             updateState(set_flag original_flag')
             --
             original_flag <- getStateFlag
-            updateState(false_flag_if $ b_returned && (this_case_value == id_token_value))
+            updateState(false_flag_if $ case_matched)
             --
             (c_returned, c_type, c) <- form_blocks_opt id_token
             --
@@ -1085,7 +1104,7 @@ form_block id_token id_token_value this_case_value = do
             --
             updateState(set_flag original_flag)
             --
-            return ((b_returned && (this_case_value == id_token_value)) || c_returned, c_type, (a:b) ++ c)
+            return ((b_returned && case_matched) || c_returned, c_type, (a:b) ++ c)
 
 idsOpt :: ParsecT [InfoAndToken] MyState IO [Token]
 idsOpt = (do a <- idToken; b <- ids; return (a:b)) <|> (return [])

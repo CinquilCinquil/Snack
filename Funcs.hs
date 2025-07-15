@@ -389,14 +389,30 @@ get_default_value _ _ TBool = BoolLiteral False
 get_default_value _ _ Unit = UnitLiteral ()
 get_default_value pos s (Matrix t dim) = MatrixLiteral t (initialize_matrix pos s t dim)
 get_default_value pos s (Id name) = do
-  let (_, _, attrbs, _) = lookup_var pos name s
-  attrbs
+  case lookup_type s name of
+    ("", _, _) -> do -- Case: Variable
+      let (_, _, attrbs, _) = lookup_var pos name s
+      attrbs
+    (_, type_params, forms) -> get_default_value pos s (Type name (map (\s -> Id s) type_params)) -- Case: Type name
 get_default_value pos s (Type type_name type_params) = 
   case lookup_type s type_name of
-    ("", _, _) -> error_msg "damee" []
+    ("", _, _) -> do
+      error_msg "Type '%' not found in search for default type value! Line: % Column: %" [type_name, showLine pos, showColumn pos]
     (_, _, type_forms) -> do
-      let (TForm (Id constructor_name, _)) = (head type_forms)
-      TypeLiteral constructor_name [] [] -- TODO: this is temporary
+      case get_first_non_recursive_form type_name type_forms of
+        TForm (Id "", _) -> do
+          let msg = "Type '%' does not have non-recursive type form, therefore it cannot be initialized with a default value!"
+          let code_pos = " Line: % Column: %"
+          error_msg (msg ++ code_pos) [type_name, showLine pos, showColumn pos]
+        TForm (Id cons_name, cons_args) -> TypeLiteral cons_name (map (get_default_value pos s) cons_args) []
+
+get_first_non_recursive_form :: Name -> [TForm] -> TForm
+get_first_non_recursive_form _ [] = TForm (Id "", [])
+get_first_non_recursive_form type_name (t:ts) = do
+  let (TForm (Id cons_name, cons_args)) = t
+  if (Id type_name) `is_in_list` cons_args
+  then get_first_non_recursive_form type_name ts
+  else t
 
 initialize_matrix :: SourcePos -> MyState -> MyType -> [Int] -> [Token]
 initialize_matrix _ _ _ [] = []
