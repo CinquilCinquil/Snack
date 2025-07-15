@@ -1,5 +1,7 @@
 {
+{-# LANGUAGE DeriveDataTypeable #-}
 module Lexer (Token(..), InfoAndToken(..), AlexPosn(..), alexScanTokens, getTokens) where
+import Data.Data
 import System.IO
 }
 
@@ -15,7 +17,7 @@ tokens :-
   "--".+                                ;
   -- Punctuations / Parantheses
   ","                                   { \p _ -> (getLC p, Comma)}
-  :                                     { \p _ -> (getLC p, Colon)}
+  ":"                                   { \p _ -> (getLC p, Colon)}
   ";"                                   { \p _ -> (getLC p, SemiColon)}
   "."                                   { \p _ -> (getLC p, Period)}
   "("                                   { \p _ -> (getLC p, OpenParentheses)}
@@ -26,12 +28,13 @@ tokens :-
   "}"                                   { \p _ -> (getLC p, CloseBrackets)}
   "..."                                 { \p _ -> (getLC p, Ellipsis)}
   ".."                                  { \p _ -> (getLC p, TwoDots)}
+  "?"                                   { \p _ -> (getLC p, Question)}
   -- Structures
   if                                    { \p _ -> (getLC p, If) }
   then                                  { \p _ -> (getLC p, Then) }
   else                                  { \p _ -> (getLC p, Else) }
   for                                   { \p _ -> (getLC p, For) }
-  do                                    { \p _ -> (getLC p, Do) }
+  step                                  { \p _ -> (getLC p, Step) }
   in                                    { \p _ -> (getLC p, In) }
   while                                 { \p _ -> (getLC p, While) }
   switch                                { \p _ -> (getLC p, Switch) }
@@ -40,7 +43,13 @@ tokens :-
   match                                 { \p _ -> (getLC p, Match) }
   with                                  { \p _ -> (getLC p, With) }
   form                                  { \p _ -> (getLC p, Form) }
+  ofForm                                { \p _ -> (getLC p, OfForm) }
   -- Operations / Relations
+  "toInt"                               { \p _ -> (getLC p, ToIntToken) }
+  "toFloat"                             { \p _ -> (getLC p, ToFloatToken) }
+  "toString"                            { \p _ -> (getLC p, ToStringToken) }
+  "toBool"                              { \p _ -> (getLC p, ToBoolToken) }
+  "toChar"                              { \p _ -> (getLC p, ToCharToken) }
   ":="                                  { \p _ -> (getLC p, Assign) }
   "=="                                  { \p _ -> (getLC p, Comp) }
   "="                                   { \p _ -> (getLC p, Equals) }
@@ -61,14 +70,15 @@ tokens :-
   fun                                   { \p _ -> (getLC p, Fun) }
   vars                                  { \p _ -> (getLC p, Vars) }
   -- Types
-  type                                  { \p s -> (getLC p, Type s) }
   nat                                   { \p _ -> (getLC p, Nat) }
   int                                   { \p _ -> (getLC p, Int) }
-  string                                { \p _ -> (getLC p, String) }
+  string                                { \p _ -> (getLC p, TString) }
+  char                                  { \p _ -> (getLC p, TChar) }
   float                                 { \p _ -> (getLC p, Float) }
   bool                                  { \p _ -> (getLC p, TBool) }
   unit                                  { \p _ -> (getLC p, Unit) }
   struct                                { \p s -> (getLC p, Struct) }
+  matrix                                { \p s -> (getLC p, Matrix Unit []) }
   -- Literals
   O	                                    { \p s -> (getLC p, NatLiteral 0) }
   S$D+	                                { \p s -> (getLC p, NatLiteral $ 1 + (read (tail s))) }
@@ -87,6 +97,7 @@ tokens :-
   "decls:"                              { \p _ -> (getLC p, Decls) }
   "main:"                               { \p _ -> (getLC p, Main) }
   "spit"                                { \p _ -> (getLC p, Print) }
+  "eat"                                 { \p _ -> (getLC p, Read) }
   $L[$L $D \_ \']*	                    { \p s -> (getLC p, Id s) }
 {
 
@@ -108,12 +119,13 @@ data Token =
   CloseBrackets |
   Ellipsis |                        -- ...
   TwoDots  |                        -- ..
+  Question |                        -- ?
   -- Structures
   If  |
   Then |
   Else |
   For |
-  Do |
+  Step |
   In |
   While |
   Switch |
@@ -122,7 +134,13 @@ data Token =
   Match |
   With |
   Form |
+  OfForm |
   -- Operations / Relations
+  ToIntToken |
+  ToFloatToken |
+  ToStringToken |
+  ToBoolToken |
+  ToCharToken |
   Assign |
   Comp |
   Equals |
@@ -143,15 +161,16 @@ data Token =
   Fun |
   Vars |
   -- Types
-  Type String |
+  Type String [Token] | -- Name, Params
   Nat |
   Int |
-  String |
+  TString |
   TChar |
   Float |
   TBool |
   Unit |
   Struct |
+  Matrix Token [Int] |
   -- Literals
   NatLiteral Int |
   IntLiteral Int |
@@ -160,7 +179,9 @@ data Token =
   FloatLiteral Float |
   BoolLiteral Bool |
   UnitLiteral () |
-  StructLiteral [(String, Token, Token, [Token])] | -- [(Name, Type, Value, FunctionBody)]
+  StructLiteral [(String, Token, Token, [InfoAndToken])] | -- [(Name, Type, Value, FunctionBody)]
+  MatrixLiteral Token [Token] |
+  TypeLiteral String [Token] [Token] | -- Constructor name, args, params
   -- Others
   Id String |
   Return |
@@ -169,10 +190,11 @@ data Token =
   Decls |
   Main |
   Print |
+  Read |
   ErrorToken |
   NoneToken |
   EndOfParamsToken
-  deriving (Eq,Show)
+  deriving (Eq,Show,Data)
 
 getLC (AlexPn _ l c) = (l, c)
 

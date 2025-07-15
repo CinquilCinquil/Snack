@@ -1,0 +1,14 @@
+types:
+decls:
+    x : int;
+    fun fact(a : int) : int {
+        if (a <= 1) {
+            return 1;
+        }
+        else {
+            return a * (fact(a - 1));
+        }
+    }
+main:
+    x := fact(4);
+    spit x;

@@ -30,6 +30,7 @@ openBracketsToken = tokenParser OpenBrackets
 closeBracketsToken = tokenParser CloseBrackets
 ellipsisToken = tokenParser Ellipsis
 twoDotsToken = tokenParser TwoDots
+questionToken = tokenParser Question
 
 -- Structures
 
@@ -37,7 +38,7 @@ ifToken = tokenParser If
 thenToken = tokenParser Then
 elseToken = tokenParser Else
 forToken = tokenParser For
-doToken = tokenParser Do
+stepToken = tokenParser Step
 inToken = tokenParser In
 whileToken = tokenParser While
 switchToken = tokenParser Switch
@@ -46,8 +47,15 @@ repeatToken = tokenParser Repeat
 matchToken = tokenParser Match
 withToken = tokenParser With
 formToken = tokenParser Form
+ofFormToken = tokenParser OfForm
 
 -- Operations / Relations
+
+toIntToken = tokenParser ToIntToken
+toFloatToken = tokenParser ToFloatToken
+toStringToken = tokenParser ToStringToken
+toBoolToken = tokenParser ToBoolToken
+toCharToken = tokenParser ToCharToken
 
 assignToken = tokenParser Assign
 compToken = tokenParser Comp
@@ -75,17 +83,18 @@ varsToken = tokenParser Vars
 
 typeToken :: ParsecT [InfoAndToken] st IO (Token)
 typeToken = tokenPrim show update_pos get_token where
-  get_token (info, Type x) = Just (Type x)
+  get_token (info, Type x y) = Just (Type x y)
   get_token _       = Nothing
 
 natToken = tokenParser Nat
 intToken = tokenParser Int
-stringToken = tokenParser String
+stringToken = tokenParser TString
 charToken = tokenParser TChar
 floatToken = tokenParser Float
 boolToken = tokenParser TBool
 unitToken = tokenParser Unit
 structToken = tokenParser Struct
+matrixToken = tokenParser (Matrix Unit [])
 
 -- Literals
 
@@ -119,6 +128,8 @@ boolLiteralToken = tokenPrim show update_pos get_token where
   get_token (info, BoolLiteral x) = Just (BoolLiteral x)
   get_token _       = Nothing
 
+-- TODO: matrix literal token
+
 -- this would be very cool! like: a : struct := {"x" : 1, "y" : "hello", z : 0.001}
 -- structLiteralToken :: ParsecT [InfoAndToken] st IO (Token)
 -- structLiteralToken = tokenPrim show update_pos get_token where
@@ -138,3 +149,4 @@ declsToken = tokenParser Decls
 mainToken = tokenParser Main
 returnToken = tokenParser Return
 printToken = tokenParser Print
+readToken = tokenParser Read

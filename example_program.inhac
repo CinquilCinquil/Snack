@@ -1,9 +1,11 @@
 types:
 decls:
+    fun a(b : int) : int {
+        return 1;
+    }
+    fun x(a : float, b : float) : float {
+        return a + b;
+    }
 main:
-    if (true) {
-        spit "aa";
-    }
-    else {
-        spit "bb";
-    }
+    a(5);
+    spit x(7.2);
