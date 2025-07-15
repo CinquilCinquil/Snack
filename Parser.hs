@@ -555,21 +555,31 @@ struct_access_or_function_call vars = do
       b <- (do b <- type_cons_rule a; return b)
             <|> (do b <- array_access a; return b)
             <|> (do (b_type, b_value, b) <- function_call a; return (b_type, b_value, noFuncBody, b))
-            <|> (struct_access' a vars) -- FIX: aqui não é vars, é o vars de 'a'
+            <|> (pre_struct_access a vars)
       return b
+
+pre_struct_access :: Token -> [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+pre_struct_access a vars = do
+  s <- getState; pos <- getPosition
+  let (Id a_name) = a
+  let (_, _, a_value, _) = lookup_var pos a_name s
+  case a_value of
+    (StructLiteral attrbs) -> struct_access' a attrbs
+    _ -> struct_access' a vars
 
 struct_access :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access vars = do
-                (Id name) <- idToken
-                --
-                s <- getState
-                case get_var_info_from_scope name vars of 
-                  (name, _, StructLiteral attrbs, _) -> do
-                      b <- struct_access' (Id name) attrbs
-                      return b
-                  _ -> do
-                    pos <- getPosition
-                    error_msg "Variable '%' is not a struct! Error #5. Line: % Column: %" [name, showLine pos, showColumn pos]
+  (Id name) <- idToken
+  --
+  s <- getState
+  case get_var_info_from_scope name vars of 
+    (name, _, StructLiteral attrbs, _) -> do
+        b <- struct_access' (Id name) attrbs
+        return b
+    (_, _, ErrorToken, _) -> do
+      pos <- getPosition
+      error_msg "Dot access attempt with a Non-struct! Error #5. Line: % Column: %" [showLine pos, showColumn pos]
+    (_, var_type, var_value, var_body) -> return (var_type, var_value, var_body, [Id name])
 
 struct_access' :: Token -> [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access' a vars = (do
