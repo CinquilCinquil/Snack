@@ -51,6 +51,7 @@ tokens :-
   "toBool"                              { \p _ -> (getLC p, ToBoolToken) }
   "toChar"                              { \p _ -> (getLC p, ToCharToken) }
   "error"                               { \p _ -> (getLC p, ErrorCmdToken) }
+  "mod"                                 { \p _ -> (getLC p, Modulo) }
   ":="                                  { \p _ -> (getLC p, Assign) }
   "=="                                  { \p _ -> (getLC p, Comp) }
   "="                                   { \p _ -> (getLC p, Equals) }
@@ -82,8 +83,9 @@ tokens :-
   struct                                { \p s -> (getLC p, Struct) }
   matrix                                { \p s -> (getLC p, Matrix Unit []) }
   -- Literals
-  O	                                    { \p s -> (getLC p, NatLiteral 0) }
-  S$D+	                                { \p s -> (getLC p, NatLiteral $ 1 + (read (tail s))) }
+  --  O	                                    { \p s -> (getLC p, NatLiteral 0) }
+  --S$D+	                                { \p s -> (getLC p, NatLiteral $ 1 + (read (tail s))) }
+  "!"                                   { \p s -> (getLC p, UnitLiteral ()) }
   $D+	                                  { \p s -> (getLC p, IntLiteral (read s)) }
   ($D+"."$D+)(e[\+\-]$D$D)?	            { \p s -> (getLC p, FloatLiteral (read s)) }
   \"([^\"\\]|\\.)*\"                    { \p s -> (getLC p, StringLiteral $ read s) }
@@ -161,6 +163,7 @@ data Token =
   Mult |
   Pow |
   Concat |
+  Modulo |
   -- Declarations
   Fun |
   Vars |

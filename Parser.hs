@@ -772,7 +772,7 @@ arithm_rule = do
 
 arithm_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 arithm_remaining (a_type, a_value, a) = (do
-              b <- sum_or_minus
+              b <- sum_or_minus_or_concat_or_modulo
               (c_type, c_value, c) <- arithm_rule
               --
               s <- getState; pos <- getPosition
@@ -840,8 +840,11 @@ uminus_remaining = (do
             --
             return (TBool, result_value, a:b))
 
-sum_or_minus :: ParsecT [InfoAndToken] MyState IO (Token)
-sum_or_minus = (do a <- sumToken; return a) <|> (do a <- minusToken; return a) <|> (do a <- concatToken; return a)
+sum_or_minus_or_concat_or_modulo :: ParsecT [InfoAndToken] MyState IO (Token)
+sum_or_minus_or_concat_or_modulo = (do a <- sumToken; return a)
+                                  <|> (do a <- minusToken; return a)
+                                  <|> (do a <- concatToken; return a)
+                                  <|> (do a <- moduloToken; return a)
 
 mult_or_div :: ParsecT [InfoAndToken] MyState IO (Token)
 mult_or_div = (do a <- divToken; return a) <|> (do a <- multToken; return a)
@@ -1162,7 +1165,7 @@ literal = (do a <- natLiteralToken; return (Nat, a, a))
   <|> (do a <- floatLiteralToken; return (Float, a, a))
   <|> (do a <- charLiteralToken; return (TChar, a, a))
   <|> (do a <- boolLiteralToken; return (TBool, a, a))
-  -- <|> (do a <- openParenthesesToken; b <- closeParenthesesToken; return (Unit, UnitLiteral (), UnitLiteral ()))
+  <|> (do a <- unitLiteralToken; return (Unit, UnitLiteral (), UnitLiteral ()))
   <|> fail "Not a valid literal"
 
 types :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])

@@ -558,6 +558,7 @@ doOpIntegral x y Sum = x + y
 doOpIntegral x y Minus = x - y
 doOpIntegral x y Mult = x * y
 doOpIntegral x y Pow = x ^ y
+doOpIntegral x y Modulo = x `mod` y
 doOpIntegral _ _ Div = error_msg "'/' operator not allowed for integral types" []
 doOpIntegral _ _ z = error_msg "Non-supported operator % for integrals" [show z]
 
