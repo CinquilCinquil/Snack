@@ -4,6 +4,7 @@ import Lexer
 import Text.Parsec
 import Text.Read (readMaybe)
 import Control.Monad.IO.Class
+import Control.Monad
 import TokenParser
 import System.Environment
 import Data.Char(digitToInt, isNumber, toLower, intToDigit)
@@ -195,7 +196,7 @@ check_types_are_declared pos s (x:xs) =
 
 get_pass_by_value_result_variables :: MyState -> ([Token], [Value])
 get_pass_by_value_result_variables [(vars, [], ts, sp, pc, scope_name, flag)] = 
-  error_msg "Failed to retrieve stack variables, it is empty ! Erro #15" []
+  error_msg "Failed to retrieve stack variables, it is empty ! Error #15" []
 get_pass_by_value_result_variables [(vars, x:xs, ts, sp, pc, scope_name, flag)] = do
   let (_, vars_and_values, _) = x
   unzip vars_and_values
@@ -317,7 +318,7 @@ assign_variables (x:xs) (y:ys) s = assign_variables xs ys (symtable_update_varia
 
 map_ref_values_to_stack :: MyState -> MyState
 map_ref_values_to_stack [(vars, [], ts, sp, pc, scope_name, flag)] = 
-  error_msg "Failed to retrieve stack variables, it is empty ! Erro #16" []
+  error_msg "Failed to retrieve stack variables, it is empty ! Error #16" []
 map_ref_values_to_stack [(vars, (x:xs), ts, sp, pc, scope_name, flag)] = do
   let (a, vars_and_values, b) = x
   let (vars', _) = unzip vars_and_values
@@ -380,13 +381,6 @@ get_value_from_exp :: [Token] -> MyState -> Token
 get_value_from_exp expression [(vars, sk, ts, sp, pc, sn, flag)] = IntLiteral 0
 
 get_default_value :: SourcePos -> MyState -> Token -> Token
-get_default_value _ _ Nat = NatLiteral 0
-get_default_value _ _ Int = IntLiteral 0
-get_default_value _ _ TString = StringLiteral ""
-get_default_value _ _ TChar = CharLiteral '\a'
-get_default_value _ _ Float = FloatLiteral 0.0
-get_default_value _ _ TBool = BoolLiteral False
-get_default_value _ _ Unit = UnitLiteral ()
 get_default_value pos s (Matrix t dim) = MatrixLiteral t (initialize_matrix pos s t dim)
 get_default_value pos s (Id name) = do
   case lookup_type s name of
@@ -405,6 +399,16 @@ get_default_value pos s (Type type_name type_params) =
           let code_pos = " Line: % Column: %"
           error_msg (msg ++ code_pos) [type_name, showLine pos, showColumn pos]
         TForm (Id cons_name, cons_args) -> TypeLiteral cons_name (map (get_default_value pos s) cons_args) []
+get_default_value _ _ primitive = get_default_value_primitive primitive
+
+get_default_value_primitive :: Token -> Token
+get_default_value_primitive Nat = NatLiteral 0
+get_default_value_primitive Int = IntLiteral 0
+get_default_value_primitive TString = StringLiteral ""
+get_default_value_primitive TChar = CharLiteral '\a'
+get_default_value_primitive Float = FloatLiteral 0.0
+get_default_value_primitive TBool = BoolLiteral False
+get_default_value_primitive Unit = UnitLiteral ()
 
 get_first_non_recursive_form :: Name -> [TForm] -> TForm
 get_first_non_recursive_form _ [] = TForm (Id "", [])
@@ -494,6 +498,7 @@ isArithm Nat = True
 isArithm Int = True
 isArithm Float = True
 isArithm TString = True
+isArithm (Matrix t _) = isArithm t
 isArithm _ = False 
 
 -- TODO: support type equivalence!?
@@ -502,34 +507,45 @@ isIntegral Nat = True
 isIntegral Int = True
 isIntegral _ = False
 
-doOpOnTokens :: Token -> Token -> Token -> Token
-doOpOnTokens (NatLiteral x) (NatLiteral y) op
+doOpOnTokens :: SourcePos -> Token -> Token -> Token -> Token
+doOpOnTokens pos op (NatLiteral x) (NatLiteral y)
   | isOrd op = BoolLiteral (doOpOrd x y op)
-  | otherwise = NatLiteral (doOpIntegral x y op)
+  | otherwise = NatLiteral (doOpIntegral pos x y op)
 --
-doOpOnTokens (IntLiteral x) (IntLiteral y) op
+doOpOnTokens pos op (IntLiteral x) (IntLiteral y)
   | isOrd op = BoolLiteral (doOpOrd x y op)
-  | otherwise = IntLiteral (doOpIntegral x y op)
+  | otherwise = IntLiteral (doOpIntegral pos x y op)
 --
-doOpOnTokens (FloatLiteral x) (FloatLiteral y) op 
+doOpOnTokens pos op (FloatLiteral x) (FloatLiteral y)
   | isOrd op = BoolLiteral (doOpOrd x y op)
-  | otherwise = FloatLiteral (doOpFloating x y op)
+  | otherwise = FloatLiteral (doOpFloating pos x y op)
 --
-doOpOnTokens (BoolLiteral x) (BoolLiteral y) op 
+doOpOnTokens pos op (BoolLiteral x) (BoolLiteral y)
   | isEq op = BoolLiteral (doOpEq x y op)
-  | otherwise = BoolLiteral (doOpBoolean x y op)
+  | otherwise = BoolLiteral (doOpBoolean pos x y op)
 --
-doOpOnTokens (StringLiteral x) (StringLiteral y) op
+doOpOnTokens pos op (StringLiteral x) (StringLiteral y)
   | op == Concat = StringLiteral (x ++ y)
   | isEq op = BoolLiteral (doOpEq x y op)
-  | otherwise = error_msg "Operation '%' is not supported for string" [show op]
+  | otherwise = error_msg "Operation '%' is not supported for strings! Line: % Column: %" [show op, showLine pos, showColumn pos]
+--
+doOpOnTokens pos op (MatrixLiteral t x) (MatrixLiteral _ y)
+  | op == Sum = MatrixLiteral t (matrix_sum pos 1 x y)
+  | op == Minus = MatrixLiteral t (matrix_sum pos (-1) x y)
+  | op == Mult = MatrixLiteral t (matrix_mult pos x y)
+  | isEq op = BoolLiteral (doOpEq x y op)
+  | otherwise = error_msg "Operation '%' is not supported for matrices! Line: % Column: %" [show op, showLine pos, showColumn pos]
 -- ...
 
-doOpOnToken :: Token -> Token -> Token
-doOpOnToken (NatLiteral x) op = NatLiteral (doUnaryOpIntegral x op)
-doOpOnToken (IntLiteral x) op = IntLiteral (doUnaryOpIntegral x op)
-doOpOnToken (FloatLiteral x) op = FloatLiteral (doUnaryOpFloating x op)
-doOpOnToken (BoolLiteral x) op = BoolLiteral (doUnaryOpBoolean x op)
+doOpOnToken :: SourcePos -> Token -> Token -> Token
+doOpOnToken _ (NatLiteral x) op = NatLiteral (doUnaryOpIntegral x op)
+doOpOnToken _ (IntLiteral x) op = IntLiteral (doUnaryOpIntegral x op)
+doOpOnToken _ (FloatLiteral x) op = FloatLiteral (doUnaryOpFloating x op)
+doOpOnToken _ (BoolLiteral x) op = BoolLiteral (doUnaryOpBoolean x op)
+doOpOnToken pos (StringLiteral _) op = 
+  error_msg "Operation '%' is not supported for strings! Line: % Column: %" [show op, showLine pos, showColumn pos]
+doOpOnToken pos (MatrixLiteral _ _) op = 
+  error_msg  "Operation '%' is not supported for matrices! Line: % Column: %" [show op, showLine pos, showColumn pos]
 
 isEq :: Token -> Bool
 isEq Equals = True
@@ -554,27 +570,29 @@ doOpOrd x y Smaller = x < y
 doOpOrd x y Greater = x > y
 doOpOrd x y op = doOpEq x y op
 
-doOpIntegral :: Integral a => a -> a -> Token -> a
-doOpIntegral x y Sum = x + y
-doOpIntegral x y Minus = x - y
-doOpIntegral x y Mult = x * y
-doOpIntegral x y Pow = x ^ y
-doOpIntegral x y Modulo = x `mod` y
-doOpIntegral _ _ Div = error_msg "'/' operator not allowed for integral types" []
-doOpIntegral _ _ z = error_msg "Non-supported operator % for integrals" [show z]
+doOpIntegral :: Integral a => SourcePos -> a -> a -> Token -> a
+doOpIntegral _ x y Sum = x + y
+doOpIntegral _ x y Minus = x - y
+doOpIntegral _ x y Mult = x * y
+doOpIntegral _ x y Pow = x ^ y
+doOpIntegral _ x y Modulo = x `mod` y
+doOpIntegral pos _ _ Div = 
+  error_msg "'/' operator not allowed for integral types! Line: % Column: %" [showLine pos, showColumn pos]
+doOpIntegral pos _ _ z = 
+  error_msg "Non-supported operator % for integrals! Line: % Column: %" [show z, showLine pos, showColumn pos]
 
-doOpFloating :: Floating a => a -> a -> Token -> a
-doOpFloating x y Sum = x + y
-doOpFloating x y Minus = x - y
-doOpFloating x y Mult = x * y
-doOpFloating x y Div = x / y
-doOpFloating x y Pow = x ** y
-doOpFloating _ _ z = error_msg "Non-supported operator % for floats" [show z]
+doOpFloating :: Floating a => SourcePos -> a -> a -> Token -> a
+doOpFloating _ x y Sum = x + y
+doOpFloating _ x y Minus = x - y
+doOpFloating _ x y Mult = x * y
+doOpFloating _ x y Div = x / y
+doOpFloating _ x y Pow = x ** y
+doOpFloating pos _ _ z = error_msg "Non-supported operator % for floats! Line: % Column: %" [show z, showLine pos, showColumn pos]
 
-doOpBoolean :: Bool -> Bool -> Token -> Bool
-doOpBoolean x y And = x && y
-doOpBoolean x y Or = x || y
-doOpBoolean _ _ z = error_msg "Non-supported operator % for booleans" [show z]
+doOpBoolean :: SourcePos -> Bool -> Bool -> Token -> Bool
+doOpBoolean _ x y And = x && y
+doOpBoolean _ x y Or = x || y
+doOpBoolean pos _ _ z = error_msg "Non-supported operator % for booleans! Line: % Column: %" [show z, showLine pos, showColumn pos]
 
 doUnaryOpIntegral :: Integral a => a -> Token -> a
 doUnaryOpIntegral x Minus = -x
@@ -597,7 +615,10 @@ showLiteral (UnitLiteral x) = show x
 showLiteral (TypeLiteral cons_name args params) = do
   let args_str = foldl (++) "" $ map (\s -> showLiteral s ++ ", ") args
   cons_name ++ "(" ++ args_str ++ ")"
-showLiteral (MatrixLiteral t content) = show_matrix "" content
+showLiteral (MatrixLiteral t content) = 
+  case content of 
+    [] -> "()"
+    _ -> show_matrix "" content
 showLiteral NoneToken = "No Value"
 showLiteral x = show x
 
@@ -611,6 +632,10 @@ show_matrix space (x:xs) =
 show_matrix_literal :: [Token] -> String
 show_matrix_literal [] = "\n"
 show_matrix_literal (x:xs) = (showLiteral x) ++ " " ++ (show_matrix_literal xs)
+
+is_matrix :: MyType -> Bool
+is_matrix (Matrix _ _) = True
+is_matrix _ = False
 
 read_literal :: String -> Token
 read_literal s
@@ -739,7 +764,6 @@ get_ref_args _ _ [] = []
 get_ref_args (x:xs) (y:ys) (z:zs) = do
   if y `is_in_list` (z:zs) then x:(get_ref_args xs ys zs) else (get_ref_args xs ys (z:zs))
 
--- TODO: adapt for when function call is present
 get_arg_names :: [Token] -> [Token]
 get_arg_names [] = []
 get_arg_names xs = get_arg_names' 0 xs
@@ -805,6 +829,49 @@ convert_id_to_type_literal s (x:xs) = do
         (type_name, type_params, _) -> ((Type type_name (map (\s -> Id s) type_params)):(convert_id_to_type_literal s xs))
     _ -> (x:(convert_id_to_type_literal s xs))
 
+matrix_sum :: SourcePos -> Int -> [Token] -> [Token] -> [Token]
+matrix_sum pos sig a b = do
+  if (get_dim a) == (get_dim b) then do
+    case length (get_dim a) of
+      0 -> []
+      _ -> zipWith (doOpOnTokens pos (if sig > 0 then Sum else Minus)) a b
+  else error_msg "Invalid size when summing matrices! Line: % Column: %" [showLine pos, showColumn pos]
+
+matrix_mult :: SourcePos -> [Token] -> [Token] -> [Token]
+matrix_mult pos a b = do
+  -- verification
+  let ldim_a = length (get_dim a)
+  let ldim_b = length (get_dim b)
+  when (ldim_a > 2 || ldim_b > 2) $ do
+    error_msg "Tensor multiplication is not implemented! Line: % Column: %" [showLine pos, showColumn pos]
+  when (ldim_a == 1 || ldim_b == 1) $ do
+    error_msg "1D matrix multiplication is not implemented! Line: % Column: %" [showLine pos, showColumn pos]
+  let (n:m:_) = get_dim a
+  let (p:q:_) = get_dim b
+  when (m /= p) $ do
+    let msg = "Invalid matrix multiplication with shapes (%, %) and (%, %)! Line: % Column: %"
+    error_msg msg [show n, show m, show p, show q, showLine pos, showColumn pos]
+  -- calculation
+  matrix_mult' pos a b
+
+-- assumes a and b are n x m and m x p
+matrix_mult' :: SourcePos -> [Token] -> [Token] -> [Token]
+matrix_mult' _ [] _ = []
+matrix_mult' pos (a:as) b = do
+  let (m:[p]) = (get_dim b)
+  let (MatrixLiteral t a_contents) = a
+  let op = doOpOnTokens pos
+  let matrix_mult'' a b = foldl (op Sum) (get_default_value_primitive t) $ zipWith (op Mult) a b -- result for a single line
+  let line_results = map (matrix_mult'' a_contents) (map (get_n_column b) [0..(p - 1)])
+  (MatrixLiteral t line_results):(matrix_mult' pos as b)
+
+get_n_column :: [Token] -> Int -> [Token]
+get_n_column ((MatrixLiteral _ b):bs) n = (get_n_column' n b) : (get_n_column bs n)
+
+get_n_column' :: Int -> [Token] -> Token
+get_n_column' 0 (x:xs) = x
+get_n_column' n (x:xs) = get_n_column' (n - 1) xs
+
 ----------------- Others -----------------
 
 dontChangeFunctionBody = [((0, 0), NoneToken)] :: [(InfoAndToken)]
@@ -842,7 +909,6 @@ to_infoAndToken xs = map (\s -> ((0, 0), s)) xs
 is_in_list x list_ = case list_ of
                       [] -> False
                       (e:ls) -> x == e || is_in_list x ls
-
 
 get_matrix_int_values pos x = do
     let x_value = (\(IntLiteral x) -> x) x

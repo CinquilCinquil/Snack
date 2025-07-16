@@ -1,0 +1,16 @@
+types:
+decls:
+    m : matrix<int>(3, 2);
+    n : matrix<int>(2, 3);
+main:
+    for i : int in [0..2) step 1 {
+        for j : int in [0..2) step 1 {
+            m[i][j] := 2;
+            n[i][j] := 2;
+        }   
+    }
+
+    m[0][0] := 10;
+    spit(m);
+    spit(n);
+    spit(m * n);
