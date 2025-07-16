@@ -724,7 +724,7 @@ relational_remaining (a_type, a_value, a) = (do
               --
               s <- getState; pos <- getPosition
               type_check pos s check_eq a_type c_type
-              let result_value = if (get_flag s) then doOpOnTokens a_value c_value b else NoneToken
+              let result_value = if (get_flag s) then doOpOnTokens pos b a_value c_value else NoneToken
               --
               return (TBool, result_value, a ++ [b] ++ c))
               <|> (do x <- or_remaining (a_type, a_value, a); return x)
@@ -742,7 +742,7 @@ or_remaining (a_type, a_value, a) = (do
               --
               s <- getState; pos <- getPosition
               type_check pos s check_bool a_type c_type
-              let result_value = if (get_flag s) then doOpOnTokens a_value c_value b else NoneToken
+              let result_value = if (get_flag s) then doOpOnTokens pos b a_value c_value else NoneToken
               --
               return (TBool, result_value, a ++ [b] ++ c))
               <|> (do x <- and_remaining (a_type, a_value, a); return x)
@@ -760,7 +760,7 @@ and_remaining (a_type, a_value, a) = (do
               --
               s <- getState; pos <- getPosition
               type_check pos s check_bool a_type c_type
-              let result_value = if (get_flag s) then doOpOnTokens a_value c_value b else NoneToken
+              let result_value = if (get_flag s) then doOpOnTokens pos b a_value c_value else NoneToken
               --
               return (TBool, result_value, a ++ [b] ++ c))
               <|> (do x <- arithm_remaining (a_type, a_value, a); return x)
@@ -778,7 +778,7 @@ arithm_remaining (a_type, a_value, a) = (do
               --
               s <- getState; pos <- getPosition
               type_check pos s check_arithm a_type c_type
-              let result_value = if (get_flag s) then doOpOnTokens a_value c_value b else NoneToken
+              let result_value = if (get_flag s) then doOpOnTokens pos b a_value c_value else NoneToken
               --
               return (c_type, result_value, a ++ [b] ++ c))
             <|> (do x <- mult_remaining (a_type, a_value, a); return x)
@@ -795,8 +795,13 @@ mult_remaining (a_type, a_value, a) = (do
               (c_type, c_value, c) <- mult_rule
               --
               s <- getState; pos <- getPosition
-              type_check pos s check_arithm a_type c_type
-              let result_value = if (get_flag s) then doOpOnTokens a_value c_value b else NoneToken
+              if (is_matrix a_type) && (is_matrix c_type) then do
+                let (Matrix a_type' _) = a_type
+                let (Matrix c_type' _) = c_type
+                type_check pos s check_arithm a_type' c_type'
+              else
+                type_check pos s check_arithm a_type c_type
+              let result_value = if (get_flag s) then doOpOnTokens pos b a_value c_value else NoneToken
               --
               return (c_type, result_value, a ++ [b] ++ c))
             <|> (do x <- pow_remaining (a_type, a_value, a); return x)
@@ -814,7 +819,7 @@ pow_remaining (a_type, a_value, a) = (do
               --
               s <- getState; pos <- getPosition
               type_check pos s check_arithm a_type c_type
-              let result_value = if (get_flag s) then doOpOnTokens a_value c_value b else NoneToken
+              let result_value = if (get_flag s) then doOpOnTokens pos b a_value c_value else NoneToken
               --
               return (c_type, result_value, a ++ [b] ++ c))
             <|> return (a_type, a_value, a)
@@ -827,7 +832,7 @@ uminus_remaining = (do
             --
             s <- getState; pos <- getPosition
             type_check pos s check_arithm b_type b_type
-            let result_value = if (get_flag s) then doOpOnToken b_value a else NoneToken
+            let result_value = if (get_flag s) then doOpOnToken pos b_value a else NoneToken
             --
             return (b_type, result_value, a:b))
             <|>
@@ -837,7 +842,7 @@ uminus_remaining = (do
             --
             s <- getState; pos <- getPosition
             type_check pos s check_bool b_type TBool
-            let result_value = if (get_flag s) then doOpOnToken b_value a else NoneToken
+            let result_value = if (get_flag s) then doOpOnToken pos b_value a else NoneToken
             --
             return (TBool, result_value, a:b))
 
@@ -943,8 +948,8 @@ for_rule = do
     -- Semantics
     -- dealing with a left-open interval
     let start_value_increment = (if (head d) == OpenSquareBrackets then (get_literal b_type (IntLiteral 0)) else f_value)
-    let start_value' = doOpOnTokens start_value start_value_increment Sum
-    let (BoolLiteral cond) = doOpOnTokens start_value' end_value cond_op
+    let start_value' = doOpOnTokens pos Sum start_value start_value_increment
+    let (BoolLiteral cond) = doOpOnTokens pos cond_op start_value' end_value
     let (Id counter_name) = (head b)
     let cond_exp = [Id counter_name, cond_op, (get_literal b_type end_value)]
     s' <- getState
