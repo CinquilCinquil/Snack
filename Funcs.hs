@@ -456,7 +456,7 @@ type_check_with_msg extra_msg pos state check var_name _type = type_check' extra
 
 type_check' :: String -> SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
 -- TODO: _type (Id var_name) case 
--- TODO: (Id var_name) (Id var_name) case 
+type_check' extra_msg pos _ check (Id name1) (Id name2) = if check extra_msg pos (Id name1) (Id name2) then return () else error ""
 type_check' extra_msg pos state check (Id var_name) _type = do
     let (_, var_type, _, _) = lookup_var pos var_name state
     if check extra_msg pos var_type _type then return () else error ""
@@ -484,6 +484,7 @@ check_correct_ref_values pos (x:xs) (y:ys) (z:zs) = do
   if x `is_in_list` (y:ys) then do
     case z of
       (Id _) -> check_correct_ref_values pos xs ys zs
+      NoneToken -> error_msg "Cannot expressions when passing by reference ! Line: % Column: %" [showLine pos, showColumn pos]
       _ -> error_msg "Cannot use literals when passing by reference ! Line: % Column: %" [showLine pos, showColumn pos]
   else check_correct_ref_values pos xs (y:ys) zs
 
@@ -492,6 +493,7 @@ isArithm :: MyType -> Bool
 isArithm Nat = True
 isArithm Int = True
 isArithm Float = True
+isArithm TString = True
 isArithm _ = False 
 
 -- TODO: support type equivalence!?
@@ -517,7 +519,10 @@ doOpOnTokens (BoolLiteral x) (BoolLiteral y) op
   | isEq op = BoolLiteral (doOpEq x y op)
   | otherwise = BoolLiteral (doOpBoolean x y op)
 --
-doOpOnTokens (StringLiteral x) (StringLiteral y) op = BoolLiteral (doOpEq x y op)
+doOpOnTokens (StringLiteral x) (StringLiteral y) op
+  | op == Concat = StringLiteral (x ++ y)
+  | isEq op = BoolLiteral (doOpEq x y op)
+  | otherwise = error_msg "Operation '%' is not supported for string" [show op]
 -- ...
 
 doOpOnToken :: Token -> Token -> Token
@@ -554,8 +559,9 @@ doOpIntegral x y Sum = x + y
 doOpIntegral x y Minus = x - y
 doOpIntegral x y Mult = x * y
 doOpIntegral x y Pow = x ^ y
+doOpIntegral x y Modulo = x `mod` y
 doOpIntegral _ _ Div = error_msg "'/' operator not allowed for integral types" []
-doOpIntegral _ _ z = error_msg "WTF %" [show z]
+doOpIntegral _ _ z = error_msg "Non-supported operator % for integrals" [show z]
 
 doOpFloating :: Floating a => a -> a -> Token -> a
 doOpFloating x y Sum = x + y
@@ -563,10 +569,12 @@ doOpFloating x y Minus = x - y
 doOpFloating x y Mult = x * y
 doOpFloating x y Div = x / y
 doOpFloating x y Pow = x ** y
+doOpFloating _ _ z = error_msg "Non-supported operator % for floats" [show z]
 
 doOpBoolean :: Bool -> Bool -> Token -> Bool
 doOpBoolean x y And = x && y
 doOpBoolean x y Or = x || y
+doOpBoolean _ _ z = error_msg "Non-supported operator % for booleans" [show z]
 
 doUnaryOpIntegral :: Integral a => a -> Token -> a
 doUnaryOpIntegral x Minus = -x
@@ -729,7 +737,7 @@ get_dim xs = do
 get_ref_args :: Eq b => [a] -> [b] -> [b] -> [a]
 get_ref_args _ _ [] = []
 get_ref_args (x:xs) (y:ys) (z:zs) = do
-  if y `is_in_list` (z:zs) then x:(get_ref_args xs ys zs) else (get_ref_args xs ys zs)
+  if y `is_in_list` (z:zs) then x:(get_ref_args xs ys zs) else (get_ref_args xs ys (z:zs))
 
 -- TODO: adapt for when function call is present
 get_arg_names :: [Token] -> [Token]
@@ -749,6 +757,22 @@ get_arg_names' n (x:xs) = do
     OpenParentheses -> get_arg_names' (n + 1) xs
     CloseParentheses -> get_arg_names' (n - 1) xs
     value -> get_arg_names' n xs
+
+remove_exp_from_args :: Int -> Bool -> [Token] -> [Token] -> [Token]
+remove_exp_from_args _ b ys [] = if b then [NoneToken] else ys
+remove_exp_from_args 0 b ys (x:xs) = do
+  case x of
+    (Id name) -> remove_exp_from_args 0 b ((Id name):ys) xs
+    Comma -> (if b then [NoneToken] else ys) ++ (remove_exp_from_args 0 False [] xs)
+    OpenParentheses -> remove_exp_from_args 1 b (OpenParentheses:ys) xs
+    _ -> remove_exp_from_args 0 True ys xs
+remove_exp_from_args n b ys (x:xs) = do
+  case x of
+    (Id name) -> remove_exp_from_args n b ((Id name):ys) xs
+    Comma -> remove_exp_from_args n b (Comma:ys) xs
+    OpenParentheses -> remove_exp_from_args (n + 1) b (OpenParentheses:ys) xs
+    CloseParentheses -> remove_exp_from_args (n - 1) b (CloseParentheses:ys) xs
+    _ -> remove_exp_from_args n b ys xs
 
 condense_extensive_types :: [InfoAndToken] -> [InfoAndToken]
 condense_extensive_types [] = []
@@ -770,6 +794,16 @@ get_dimensions_from_tokens (OpenParentheses:xs) = get_dimensions_from_tokens xs
 get_dimensions_from_tokens (CloseParentheses:xs) = []
 get_dimensions_from_tokens (Comma:xs) = get_dimensions_from_tokens xs
 get_dimensions_from_tokens ((IntLiteral x):xs) = x:(get_dimensions_from_tokens xs)
+
+convert_id_to_type_literal :: MyState -> [Token] -> [Token]
+convert_id_to_type_literal _ [] = []
+convert_id_to_type_literal s (x:xs) = do
+  case x of
+    (Id name) -> do
+      case lookup_type s name of
+        ("", [], []) -> (x:(convert_id_to_type_literal s xs))
+        (type_name, type_params, _) -> ((Type type_name (map (\s -> Id s) type_params)):(convert_id_to_type_literal s xs))
+    _ -> (x:(convert_id_to_type_literal s xs))
 
 ----------------- Others -----------------
 

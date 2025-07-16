@@ -50,6 +50,8 @@ tokens :-
   "toString"                            { \p _ -> (getLC p, ToStringToken) }
   "toBool"                              { \p _ -> (getLC p, ToBoolToken) }
   "toChar"                              { \p _ -> (getLC p, ToCharToken) }
+  "error"                               { \p _ -> (getLC p, ErrorCmdToken) }
+  "mod"                                 { \p _ -> (getLC p, Modulo) }
   ":="                                  { \p _ -> (getLC p, Assign) }
   "=="                                  { \p _ -> (getLC p, Comp) }
   "="                                   { \p _ -> (getLC p, Equals) }
@@ -61,6 +63,7 @@ tokens :-
   "and"                                 { \p _ -> (getLC p, And)}
   "or"                                  { \p _ -> (getLC p, Or)}
   "=/="                                 { \p _ -> (getLC p, Different)}
+  "++"                                  { \p _ -> (getLC p, Concat) }
   "+"                                   { \p _ -> (getLC p, Sum) }
   "-"                                   { \p _ -> (getLC p, Minus) }
   "/"                                   { \p _ -> (getLC p, Div) }
@@ -80,8 +83,9 @@ tokens :-
   struct                                { \p s -> (getLC p, Struct) }
   matrix                                { \p s -> (getLC p, Matrix Unit []) }
   -- Literals
-  O	                                    { \p s -> (getLC p, NatLiteral 0) }
-  S$D+	                                { \p s -> (getLC p, NatLiteral $ 1 + (read (tail s))) }
+  --  O	                                    { \p s -> (getLC p, NatLiteral 0) }
+  --S$D+	                                { \p s -> (getLC p, NatLiteral $ 1 + (read (tail s))) }
+  "!"                                   { \p s -> (getLC p, UnitLiteral ()) }
   $D+	                                  { \p s -> (getLC p, IntLiteral (read s)) }
   ($D+"."$D+)(e[\+\-]$D$D)?	            { \p s -> (getLC p, FloatLiteral (read s)) }
   \"([^\"\\]|\\.)*\"                    { \p s -> (getLC p, StringLiteral $ read s) }
@@ -141,6 +145,7 @@ data Token =
   ToStringToken |
   ToBoolToken |
   ToCharToken |
+  ErrorCmdToken |
   Assign |
   Comp |
   Equals |
@@ -157,6 +162,8 @@ data Token =
   Div |
   Mult |
   Pow |
+  Concat |
+  Modulo |
   -- Declarations
   Fun |
   Vars |

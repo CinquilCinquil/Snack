@@ -1,0 +1,14 @@
+types:
+decls:
+    struct Y {
+        a : string;
+        b : float;
+    };
+    struct X {
+        a : int;
+        k : float;
+    };
+main:
+    A : X;
+    A.a := 2;
+    spit A.a;

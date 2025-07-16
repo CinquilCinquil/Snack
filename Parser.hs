@@ -148,7 +148,7 @@ type_cons_rule_remaining constructor_name constructor_args type_params = do
 type_cons_args :: Name -> [MyType] -> [Name] -> [MyType] -> ParsecT [InfoAndToken] MyState IO (Value, [Token])
 type_cons_args constructor_name constructor_args type_params type_params_values = do
         if constructor_args == [] then
-          return (TypeLiteral constructor_name [] [], [Id constructor_name])
+          return (TypeLiteral constructor_name [] [], [])
         else do
           b <- openParenthesesToken
           (c_types, c_values, _, c) <- args_rule_opt
@@ -381,6 +381,19 @@ stmt = (do a <- decl_or_atrib_or_access_or_call; return (False, Unit, a))
       updateState (symtable_update_variable (b, value, dontChangeFunctionBody))
     --
     return (False, Unit, (a:b:bs) ++ [c]))
+   <|> (do -- Error
+     a <- errorCmdToken
+     (_, b_value, _, b) <- exp_rule
+     c <- semiColonToken
+     --
+     s <- getState
+     when (get_flag s) $ do
+      liftIO (putStrLn "### ERROR CALL FROM INSIDE THE PROGRAM ###\n")
+      liftIO (putStrLn $ showLiteral b_value)
+      liftIO (putStrLn "\n###############")
+      error ""
+     --
+     return (False, Unit, (a:b) ++ [c]))
 
 fun_decl :: ParsecT [InfoAndToken] MyState IO [Token]
 fun_decl = do
@@ -557,21 +570,31 @@ struct_access_or_function_call vars = do
       b <- (do b <- type_cons_rule a; return b)
             <|> (do b <- array_access a; return b)
             <|> (do (b_type, b_value, b) <- function_call a; return (b_type, b_value, noFuncBody, b))
-            <|> (struct_access' a vars) -- FIX: aqui não é vars, é o vars de 'a'
+            <|> (pre_struct_access a vars)
       return b
+
+pre_struct_access :: Token -> [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+pre_struct_access a vars = do
+  s <- getState; pos <- getPosition
+  let (Id a_name) = a
+  let (_, _, a_value, _) = lookup_var pos a_name s
+  case a_value of
+    (StructLiteral attrbs) -> struct_access' a attrbs
+    _ -> struct_access' a vars
 
 struct_access :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access vars = do
-                (Id name) <- idToken
-                --
-                s <- getState
-                case get_var_info_from_scope name vars of 
-                  (name, _, StructLiteral attrbs, _) -> do
-                      b <- struct_access' (Id name) attrbs
-                      return b
-                  _ -> do
-                    pos <- getPosition
-                    error_msg "Variable '%' is not a struct! Error #5. Line: % Column: %" [name, showLine pos, showColumn pos]
+  (Id name) <- idToken
+  --
+  s <- getState
+  case get_var_info_from_scope name vars of 
+    (name, _, StructLiteral attrbs, _) -> do
+        b <- struct_access' (Id name) attrbs
+        return b
+    (_, _, ErrorToken, _) -> do
+      pos <- getPosition
+      error_msg "Dot access attempt with a Non-struct! Error #5. Line: % Column: %" [showLine pos, showColumn pos]
+    (_, var_type, var_value, var_body) -> return (var_type, var_value, var_body, [Id name])
 
 struct_access' :: Token -> [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 struct_access' a vars = (do
@@ -635,17 +658,18 @@ function_call a = do
   let (Id func_name) = a
   let (_, func_type, _, func_code) = lookup_var pos func_name s
   let func_code' = condense_extensive_types func_code
-  liftIO (print func_code')
   let (func_params, ref_params, func_params_types, func_body) = get_params func_code'
-  let c_names = get_arg_names c
+  let c_names = get_arg_names (remove_exp_from_args 0 False [] c)
+  let func_params_types' = convert_id_to_type_literal s func_params_types
+  let c_types' = convert_id_to_type_literal s c_types
   check_param_amount pos func_params c_types
-  check_types (type_check pos s check_eq) c_types func_params_types
+  check_types (type_check pos s check_eq) c_types' func_params_types'
   check_correct_ref_values pos func_params ref_params c_names
   -- Semantics
   let is_executing = get_flag s
   when is_executing $ do
         updateState (add_current_scope_name "fun")
-        updateState (load_params func_params func_params_types c_values c_bodies)
+        updateState (load_params func_params func_params_types' c_values c_bodies)
         updateState (add_call_to_stack func_name (map (\s -> (Id s, NoneToken))  ref_params))
         --
         s' <- getState
@@ -751,7 +775,7 @@ arithm_rule = do
 
 arithm_remaining :: (MyType, Value, [Token]) -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 arithm_remaining (a_type, a_value, a) = (do
-              b <- sum_or_minus
+              b <- sum_or_minus_or_concat_or_modulo
               (c_type, c_value, c) <- arithm_rule
               --
               s <- getState; pos <- getPosition
@@ -819,8 +843,11 @@ uminus_remaining = (do
             --
             return (TBool, result_value, a:b))
 
-sum_or_minus :: ParsecT [InfoAndToken] MyState IO (Token)
-sum_or_minus = (do a <- sumToken; return a) <|> (do a <- minusToken; return a)
+sum_or_minus_or_concat_or_modulo :: ParsecT [InfoAndToken] MyState IO (Token)
+sum_or_minus_or_concat_or_modulo = (do a <- sumToken; return a)
+                                  <|> (do a <- minusToken; return a)
+                                  <|> (do a <- concatToken; return a)
+                                  <|> (do a <- moduloToken; return a)
 
 mult_or_div :: ParsecT [InfoAndToken] MyState IO (Token)
 mult_or_div = (do a <- divToken; return a) <|> (do a <- multToken; return a)
@@ -861,16 +888,18 @@ if_rule = do
         --
         s' <- getState;
         let (BoolLiteral boolean_value) = b_value
-        if (get_flag s') then updateState (set_flag boolean_value) else updateState (set_flag False)
+        let new_flag_value_if = if (get_flag s') then boolean_value else False
+        updateState (set_flag new_flag_value_if)
         (c_returned, c_type, c) <- block
         --
         updateState (remove_current_scope_name)
         --
-        if (get_flag s') then updateState (set_flag (not boolean_value)) else updateState (set_flag False)
+        let new_flag_value_else = if (get_flag s') then not boolean_value else False
+        updateState (set_flag new_flag_value_else)
         (d_returned, d_type, d) <- else_op
         --
         updateState (set_flag $ get_flag s')
-        let returned = c_returned || d_returned
+        let returned = (new_flag_value_if && c_returned) || (new_flag_value_else && d_returned)
         let tokens = (a:b) ++ c ++ d
         -- Type check
         s <- getState; pos <- getPosition
@@ -1141,7 +1170,7 @@ literal = (do a <- natLiteralToken; return (Nat, a, a))
   <|> (do a <- floatLiteralToken; return (Float, a, a))
   <|> (do a <- charLiteralToken; return (TChar, a, a))
   <|> (do a <- boolLiteralToken; return (TBool, a, a))
-  -- <|> (do a <- openParenthesesToken; b <- closeParenthesesToken; return (Unit, UnitLiteral (), UnitLiteral ()))
+  <|> (do a <- unitLiteralToken; return (Unit, UnitLiteral (), UnitLiteral ()))
   <|> fail "Not a valid literal"
 
 types :: ParsecT [InfoAndToken] MyState IO (MyType, [Token])

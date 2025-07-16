@@ -56,6 +56,7 @@ toFloatToken = tokenParser ToFloatToken
 toStringToken = tokenParser ToStringToken
 toBoolToken = tokenParser ToBoolToken
 toCharToken = tokenParser ToCharToken
+errorCmdToken = tokenParser ErrorCmdToken
 
 assignToken = tokenParser Assign
 compToken = tokenParser Comp
@@ -73,6 +74,8 @@ minusToken = tokenParser Minus
 divToken = tokenParser Div
 multToken = tokenParser Mult
 powToken = tokenParser Pow
+concatToken = tokenParser Concat
+moduloToken = tokenParser Modulo
 
 -- Declarations
 
@@ -127,6 +130,8 @@ boolLiteralToken :: ParsecT [InfoAndToken] st IO (Token)
 boolLiteralToken = tokenPrim show update_pos get_token where
   get_token (info, BoolLiteral x) = Just (BoolLiteral x)
   get_token _       = Nothing
+
+unitLiteralToken = tokenParser (UnitLiteral ())
 
 -- TODO: matrix literal token
 
