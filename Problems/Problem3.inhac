@@ -1,0 +1,47 @@
+types:
+decls:
+    n0 : int;
+    m0 : int;
+    n1 : int;
+    m1 : int;
+
+main:
+    spit "Digite as dimensões da primeira matriz:";
+    eat n0;
+    eat m0;
+    a : matrix<int>(n0, m0);
+
+    x : int;
+    for i : int in [0..n0) step 1 {
+        for j : int in [0..m0) step 1 {
+            eat x;
+            a[i][j] := x;
+        }   
+    }
+
+    spit "Digite as dimensões da segunda matriz:";
+    eat n1;
+    eat m1;
+    b : matrix<int>(n1, m1);
+
+    for i : int in [0..n1) step 1 {
+        for j : int in [0..m1) step 1 {
+            eat x;
+            b[i][j] := x;
+        }   
+    }
+
+    if((n0 = n1) and (m0 = m1)) {
+        spit "The sum of the two matrices: ";
+        spit (a+b);
+    } else {
+        spit "Not possible to sum these matrices";
+    }
+
+    if(m0 = n1) {
+        spit "The product of the two matrices:";
+        spit (a*b);
+    } else {
+        spit "Not possible to multiply the two matrices";
+    }
+
