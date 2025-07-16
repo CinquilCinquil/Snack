@@ -468,7 +468,7 @@ struct_decl = do
             a <- structToken
             b <- idToken
             --
-            updateState (symtable_insert_variable (b, Struct, StructLiteral [], []))
+            updateState (symtable_insert_variable (b, b, StructLiteral [], []))
             --
             updateState (add_current_scope_name "struct")
             --
