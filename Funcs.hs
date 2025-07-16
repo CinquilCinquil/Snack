@@ -452,11 +452,17 @@ check_param_amount pos a b = if (length a) == (length b)
 -- wrapper for type_check'
 -- pos -> State -> type checking function -> type or identifier token -> type or identifier token -> ...
 type_check :: SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
-type_check pos state check var_name _type = type_check' "" pos state check var_name _type
+type_check pos state check var_name _type = do
+  if (get_flag state)
+  then type_check' "" pos state check var_name _type
+  else return()
 
 -- wrapper for type_check'
 type_check_with_msg :: String -> SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
-type_check_with_msg extra_msg pos state check var_name _type = type_check' extra_msg pos state check var_name _type
+type_check_with_msg extra_msg pos state check var_name _type = do
+  if (get_flag state)
+  then type_check' extra_msg pos state check var_name _type
+  else return()
 
 type_check' :: String -> SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
 -- TODO: _type (Id var_name) case 
@@ -479,7 +485,8 @@ type_check' extra_msg pos state check (Id name1) (Id name2) = do -- assumes they
 type_check' extra_msg pos state check (Id var_name) _type = do
     let (_, var_type, _, _) = lookup_var pos var_name state
     if check extra_msg pos var_type _type then return () else error ""
-type_check' extra_msg pos state check type1 type2 = if check extra_msg pos type1 type2 then return () else error ""
+type_check' extra_msg pos state check type1 type2 = do
+  if check extra_msg pos type1 type2 then return () else error ""
 
 check_eq :: String -> SourcePos -> MyType -> MyType -> Bool
 check_eq extra_msg pos t1 t2 = if t1 == t2 then True
