@@ -218,7 +218,7 @@ init_or_decl id_token = (do -- Assignment
                 (exp_type, exp_value, _, b) <- exp_rule
                 --
                 s <- getState; pos <- getPosition
-                type_check pos s check_eq id_token exp_type
+                type_check pos s check_eq_deep id_token exp_type
                 when (get_flag s) $ do
                   updateState (symtable_update_variable (id_token, exp_value, dontChangeFunctionBody))
                 --
@@ -233,7 +233,7 @@ init_or_decl id_token = (do -- Assignment
                 updateState (symtable_insert_variable (id_token, b_type, get_default_value pos s b_type, []))
                 --
                 s' <- getState; pos' <- getPosition
-                type_check pos' s' check_eq id_token exp_type
+                type_check pos' s' check_eq_deep id_token exp_type
                 let var_value = if c == [] then get_default_value pos' s' b_type else exp_value
                 when (get_flag s') $ do
                   updateState (symtable_update_variable (id_token, var_value, dontChangeFunctionBody))
@@ -283,7 +283,7 @@ array_attrib a = do
         e <- semiColonToken
         -- Type check
         s <- getState; pos' <- getPosition
-        type_check pos' s check_eq matrix_type d_type
+        type_check pos' s check_eq_deep matrix_type d_type
         --
         let new_matrix_value = update_matrix_value pos' a_value coords d_value
         when (get_flag s) $ do
@@ -329,7 +329,7 @@ stmts = do
           --
           return (returned, resulting_type, a ++ b)
         else do 
-          type_check pos s check_eq a_type b_type
+          type_check pos s check_eq_deep a_type b_type
           --
           updateState(set_flag original_flag)
           --
@@ -421,7 +421,7 @@ fun_decl = do
         --
         let (Id func_name) = b
         s <- getState; pos <- getPosition
-        type_check_with_msg (replace '%' [func_name] "In function '%' return: ") pos s check_eq h_type g_type
+        type_check_with_msg (replace '%' [func_name] "In function '%' return: ") pos s check_eq_deep h_type g_type
         --
         updateState (remove_current_scope_name)
         updateState (set_flag True)
@@ -661,7 +661,7 @@ function_call a = do
   let func_params_types' = convert_id_to_type_literal s func_params_types
   let c_types' = convert_id_to_type_literal s c_types
   check_param_amount pos func_params c_types
-  check_types (type_check pos s check_eq) c_types' func_params_types'
+  check_types (type_check pos s check_eq_deep) c_types' func_params_types'
   check_correct_ref_values pos func_params ref_params c_names
   -- Semantics
   let is_executing = get_flag s
@@ -910,7 +910,7 @@ if_rule = do
           let resulting_type = (if c_type /= d_type then (if c_type == Unit then d_type else c_type) else c_type)
           return (returned, resulting_type, tokens)
         else do
-          type_check_with_msg "In If-Else return: " pos s check_eq c_type d_type
+          type_check_with_msg "In If-Else return: " pos s check_eq_deep c_type d_type
           return (returned, c_type, tokens)
 
 else_op :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
@@ -939,8 +939,8 @@ for_rule = do
     (f_type, f_value, _, f) <- exp_rule -- WARNING: step semantics is executed even if the block isn't
     -- Type check
     s <- getState; pos <- getPosition
-    type_check pos s check_eq b_type d_type
-    type_check pos s check_eq b_type f_type
+    type_check pos s check_eq_deep b_type d_type
+    type_check pos s check_eq_deep b_type f_type
     -- Block
     updateState (set_flag False)
     (g_returned, g_type, g) <- block
@@ -975,7 +975,7 @@ range_rule = (do -- Range with brackets
           e <- closeSquareBracketsToken <|> closeParenthesesToken
           --
           s <- getState; pos <- getPosition
-          type_check pos s check_eq b_type d_type
+          type_check pos s check_eq_deep b_type d_type
           when (not $ isArithm b_type) $ do error_msg "Range values must be Arithmetic! Line: % Column: %" [showLine pos, showColumn pos]
           --
           let op = if e == CloseSquareBrackets then Leq else Smaller
@@ -1112,7 +1112,7 @@ form_blocks_start id_token = (do
     s <- getState; pos <- getPosition
     let (Id id_token_name) = id_token
     let (_, id_token_type, id_token_value, _) = lookup_var pos id_token_name s
-    type_check pos s check_eq id_token_type a_type
+    type_check pos s check_eq_deep id_token_type a_type
     --
     (b_returned, b_type, b) <- form_block id_token (id_token_value == a_value)
     --
@@ -1136,7 +1136,7 @@ form_block id_token case_matched = do
             (c_returned, c_type, c) <- form_blocks_opt id_token
             --
             s <- getState; pos <- getPosition
-            type_check_with_msg "In Match-Form return: " pos s check_eq b_type c_type
+            type_check_with_msg "In Match-Form return: " pos s check_eq_deep b_type c_type
             --
             updateState(set_flag original_flag)
             --

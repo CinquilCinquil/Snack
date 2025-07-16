@@ -452,17 +452,11 @@ check_param_amount pos a b = if (length a) == (length b)
 -- wrapper for type_check'
 -- pos -> State -> type checking function -> type or identifier token -> type or identifier token -> ...
 type_check :: SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
-type_check pos state check var_name _type = do
-  if (get_flag state)
-  then type_check' "" pos state check var_name _type
-  else return()
+type_check pos state check var_name _type = type_check' "" pos state check var_name _type
 
 -- wrapper for type_check'
 type_check_with_msg :: String -> SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
-type_check_with_msg extra_msg pos state check var_name _type = do
-  if (get_flag state)
-  then type_check' extra_msg pos state check var_name _type
-  else return()
+type_check_with_msg extra_msg pos state check var_name _type = type_check' extra_msg pos state check var_name _type
 
 type_check' :: String -> SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
 -- TODO: _type (Id var_name) case 
@@ -488,7 +482,14 @@ type_check' extra_msg pos state check (Id var_name) _type = do
 type_check' extra_msg pos state check type1 type2 = do
   if check extra_msg pos type1 type2 then return () else error ""
 
+-- check_eq does not take into account the dimensions of a matrix, this one does
+check_eq_deep :: String -> SourcePos -> MyType -> MyType -> Bool
+check_eq_deep extra_msg pos t1 t2 = if t1 == t2 then True
+else error_msg "% Types '%' and '%' do not match! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
+
 check_eq :: String -> SourcePos -> MyType -> MyType -> Bool
+check_eq extra_msg pos (Matrix t1 _) (Matrix t2 _) = if t1 == t2 then True
+else error_msg "% Types '%' and '%' do not match! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
 check_eq extra_msg pos t1 t2 = if t1 == t2 then True
 else error_msg "% Types '%' and '%' do not match! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
 
