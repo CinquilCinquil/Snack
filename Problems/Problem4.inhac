@@ -1,0 +1,122 @@
+types:
+decls:
+    struct rational_t{
+        numerador : int;
+        denominador : int;
+    };
+    
+    fun new_rat (a : int, b : int) : rational_t {
+        r : rational_t;
+        if (not (b = 0)) {
+            r.numerador := a;
+            r.denominador := b;
+            return r;
+        }
+        error "Not a valid rational";
+    }
+
+    fun rat_eq (r : rational_t, s : rational_t) : bool {
+        if (r.numerador * s.denominador = r.denominador * s.numerador) {
+            return true;
+        }
+        return false;
+    }
+
+    fun rat_add (r : rational_t, s : rational_t) : rational_t {
+        t : rational_t;
+        if (r.denominador = s.denominador) {
+            t.denominador := r.denominador;
+            t.numerador := r.numerador + s.numerador;
+        }
+        else {
+            t.denominador := r.denominador * s.denominador;
+            t.numerador := (r.numerador * s.denominador) + (s.numerador * r.denominador);
+        }
+        return t;
+    }
+
+    fun rat_neg (r : rational_t) : rational_t {
+        if (r.denominador > 0) {
+            r.numerador := -(r.numerador);
+        }
+        else {
+            r.denominador := -(r.denominador);
+        }
+        return r;
+    }
+
+    fun rat_sub (r : rational_t, s : rational_t) : rational_t {
+        return rat_add(r, rat_neg(s));
+    }
+
+    fun rat_mul (r : rational_t, s : rational_t) : rational_t {
+        t : rational_t;
+        t.numerador := r.numerador * s.numerador;
+        t.denominador := r.denominador * s.denominador;
+        return t;
+    }
+
+    fun rat_inv (r : rational_t) : rational_t {
+        copy : int := r.numerador;
+        r.numerador := r.denominador;
+        r.denominador := copy;
+        return r;
+    }
+
+    fun rat_div (r : rational_t, s : rational_t) : rational_t {
+        return rat_mul(r, rat_inv(s));
+    }
+
+    fun spit_rat (r : rational_t) : Unit {
+        spit ("Nomerador: " ++ toString(r.numerador));
+        spit ("Denominador: " ++ toString(r.denominador));
+        return !;
+    }
+
+main:
+    a0 : int;
+    b0 : int;
+    a1 : int;
+    a2 : int;
+    rat0 : rational_t; 
+    rat1 : rational_t;
+
+    spit "Input 4 integers: ";
+    eat a0;
+    eat b0;
+    eat a1;
+    eat b1;
+
+    rat0 := new_rat(a0, b0);
+    rat1 := new_rat(a1, b1);
+
+    spit "The rational numbers you got are: ";
+    spit_rat(rat0);
+    spit_rat(rat1);
+
+    if (rational_eq(rat0, rat1) = true){
+        spit "These rational numbers are the same!";
+    }
+    else{
+        "These rational numbers are different!";
+    }
+
+    spit "Adding these two you get: ";
+    spit_rat(rat_add(rat0, rat1));
+
+    spit "Subtracting these two you get: ";
+    spit_rat(rat_sub(rat0, rat1));
+
+    spit "Multiplying these two you get: ";
+    spit_rat(rat_mul(rat0, rat1));
+
+    spit "Dividing these two you get: ";
+    spit_rat(rat_div(rat0, rat1));
+
+    spit "Still interested into finding out their (+) and (*) inverses?";
+    spit "(+)-inv: ";
+    spit_rat(rat_neg(rat0));
+    spit_rat(rat_neg(rat1));
+    spit "(*)-inv: ";
+    spit_rat(rat_inv(rat0));
+    spit_rat(rat_inv(rat1));
