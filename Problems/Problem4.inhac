@@ -94,11 +94,11 @@ main:
     spit_rat(rat0);
     spit_rat(rat1);
 
-    if (rational_eq(rat0, rat1) = true){
+    if (rat_eq(rat0, rat1) = true){
         spit "These rational numbers are the same!";
     }
     else{
-        "These rational numbers are different!";
+        spit "These rational numbers are different!";
     }
 
     spit "Adding these two you get: ";
