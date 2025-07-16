@@ -1,0 +1,37 @@
+types:
+decls:
+    n : int;
+    m : int;
+    x : int;
+
+    fun mdc(n : int, m : int, r ? int) : unit {
+
+        if(n = 0){
+            r := m;
+            return !;
+        }
+
+        if(m = 0) {
+            r := n;
+            return !;
+        }
+
+        if (m mod n = 0) {
+            r := n;
+            return !;
+        } else if (m mod n = 0) {
+            r := m;
+            return !;
+        } else if (m > n) {
+            return mdc(n, m mod n, r);
+        }
+
+        return mdc(n mod m, m, r);
+    }
+main:
+    spit "Digite os valores de n e m";
+    eat n;
+    eat m;
+    mdc(n, m, x);
+    spit "mdc:";
+    spit x;

@@ -1,0 +1,26 @@
+types:
+    MyTree ofForm Leaf(), Branch(int, MyTree, MyTree);
+decls:
+    raiz : MyTree;
+
+    fun insert(raiz ? MyTree, val : int) : unit {
+        match raiz with {
+            form Leaf():
+                raiz := Branch(val, Leaf, Leaf);
+            form Branch(x, left, right):
+                if(val < x) {
+                    insert(left, val);
+                } else {
+                    insert(right, val);
+                }
+                raiz := Branch(x, left, right);
+        }
+    }
+main:
+    raiz := Leaf;
+    insert(raiz, 10);
+    insert(raiz, 15);
+    insert(raiz, 8);
+    insert(raiz, 11);
+    spit "Raiz: ";
+    spit raiz;
