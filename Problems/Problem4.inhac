@@ -67,7 +67,7 @@ decls:
         return rat_mul(r, rat_inv(s));
     }
 
-    fun spit_rat (r : rational_t) : Unit {
+    fun spit_rat (r : rational_t) : unit {
         spit ("Nomerador: " ++ toString(r.numerador));
         spit ("Denominador: " ++ toString(r.denominador));
         return !;
@@ -77,7 +77,7 @@ main:
     a0 : int;
     b0 : int;
     a1 : int;
-    a2 : int;
+    b1 : int;
     rat0 : rational_t; 
     rat1 : rational_t;
 
