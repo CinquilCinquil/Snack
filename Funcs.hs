@@ -381,6 +381,7 @@ get_value_from_exp :: [Token] -> MyState -> Token
 get_value_from_exp expression [(vars, sk, ts, sp, pc, sn, flag)] = IntLiteral 0
 
 get_default_value :: SourcePos -> MyState -> Token -> Token
+get_default_value pos s (List t) = ListLiteral t []
 get_default_value pos s (Matrix t dim) = MatrixLiteral t (initialize_matrix pos s t dim)
 get_default_value pos s (Id name) = do
   case lookup_type s name of
@@ -522,6 +523,7 @@ isArithm Int = True
 isArithm Float = True
 isArithm TString = True
 isArithm (Matrix t _) = isArithm t
+isArithm (List t) = isArithm t
 isArithm _ = False 
 
 -- TODO: support type equivalence!?
@@ -558,6 +560,11 @@ doOpOnTokens pos op (MatrixLiteral t x) (MatrixLiteral _ y)
   | op == Mult = MatrixLiteral t (matrix_mult pos x y)
   | isEq op = BoolLiteral (doOpEq x y op)
   | otherwise = error_msg "Operation '%' is not supported for matrices! Line: % Column: %" [show op, showLine pos, showColumn pos]
+-- 
+doOpOnTokens pos op (ListLiteral t x) (ListLiteral _ y)
+  | op == Concat = ListLiteral t (x ++ y)
+  | isEq op = BoolLiteral (doOpEq x y op)
+  | otherwise = error_msg "Operation '%' is not supported for lists! Line: % Column: %" [show op, showLine pos, showColumn pos]
 -- ...
 
 doOpOnToken :: SourcePos -> Token -> Token -> Token
@@ -569,6 +576,8 @@ doOpOnToken pos (StringLiteral _) op =
   error_msg "Operation '%' is not supported for strings! Line: % Column: %" [show op, showLine pos, showColumn pos]
 doOpOnToken pos (MatrixLiteral _ _) op = 
   error_msg  "Operation '%' is not supported for matrices! Line: % Column: %" [show op, showLine pos, showColumn pos]
+doOpOnToken pos (ListLiteral _ _) op = 
+  error_msg  "Operation '%' is not supported for lists! Line: % Column: %" [show op, showLine pos, showColumn pos]
 
 isEq :: Token -> Bool
 isEq Equals = True
@@ -638,10 +647,11 @@ showLiteral (UnitLiteral x) = show x
 showLiteral (TypeLiteral cons_name args params) = do
   let args_str = foldl (++) "" $ map (\s -> showLiteral s ++ ", ") args
   cons_name ++ "(" ++ args_str ++ ")"
-showLiteral (MatrixLiteral t content) = 
+showLiteral (MatrixLiteral _ content) = 
   case content of 
     [] -> "()"
     _ -> show_matrix "" content
+showLiteral (ListLiteral _ content) = show (map showLiteral content)
 showLiteral NoneToken = "No Value"
 showLiteral x = show x
 
@@ -713,6 +723,7 @@ to_bool (StringLiteral x) = do
     to_bool $ CharLiteral (head x)
   else
     error_msg "Invalid conversion of '%' to Bool" [x]
+to_bool x = error_msg "Invalid conversion of '%' to Bool" [show x]
 
 to_char :: Token -> Token
 to_char (NatLiteral x) = CharLiteral (intToDigit x)
@@ -722,6 +733,7 @@ to_char (BoolLiteral x) = CharLiteral (if x then 'T' else 'F')
 to_char (CharLiteral x) = CharLiteral x
 to_char (StringLiteral x) = do
   if length x == 1 then CharLiteral (head x) else error_msg "Invalid conversion of '%' to Char" [x] 
+to_char x = error_msg "Invalid conversion of '%' to Char" [show x]
 
 get_literal :: MyType -> Value -> Token
 --get_literal Nat v = to_nat v
@@ -744,6 +756,7 @@ is_type_name _ _ TChar = True
 is_type_name _ _ TString = True
 is_type_name _ _ Unit = True
 is_type_name _ _ (Matrix _ _) = True
+is_type_name _ _ (List _) = True
 is_type_name pos s (Id name) =
   case lookup_type s name of
     ("", _, _) -> error_msg "dame4" [] -- TODO: usar o pos
@@ -894,6 +907,30 @@ get_n_column ((MatrixLiteral _ b):bs) n = (get_n_column' n b) : (get_n_column bs
 get_n_column' :: Int -> [Token] -> Token
 get_n_column' 0 (x:xs) = x
 get_n_column' n (x:xs) = get_n_column' (n - 1) xs
+
+-- Assumes type is already checked
+append_to_list :: Token -> Token -> Token
+append_to_list a (ListLiteral t b) = ListLiteral t (reverse (a : reverse b))
+
+pop_list :: Token -> Token
+pop_list (ListLiteral t []) = ErrorToken
+pop_list (ListLiteral t list) = (ListLiteral t (reverse $ tail $ reverse list))
+
+access_list :: Int -> Token -> Token
+access_list _ (ListLiteral t []) = ErrorToken
+access_list 0 (ListLiteral _ list) = head list
+access_list n (ListLiteral t (x:xs)) = if n < 0 then ErrorToken else access_list (n - 1) (ListLiteral t xs)
+
+update_list :: Int -> Token -> Token -> Token
+update_list n (ListLiteral t list) new_value = 
+  case update_list' n list new_value of
+    [ErrorToken] -> ErrorToken
+    new_list -> ListLiteral t new_list
+
+update_list' :: Int -> [Token] -> Token -> [Token]
+update_list' _ [] _ = [ErrorToken]
+update_list' 0 (x:xs) new_value = (new_value:xs)
+update_list' n (x:xs) new_value = if n < 0 then [ErrorToken] else x : update_list' (n - 1) xs new_value
 
 ----------------- Others -----------------
 

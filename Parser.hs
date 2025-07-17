@@ -197,11 +197,13 @@ declaration = (do
 
 ----------------- Main -----------------
 
-decl_or_atrib_or_access_or_call :: ParsecT [InfoAndToken] MyState IO ([Token])
-decl_or_atrib_or_access_or_call = do
+-- decl, attrib, list operations, struct attrib, function call, ...
+stmt_rules_that_start_with_id :: ParsecT [InfoAndToken] MyState IO ([Token])
+stmt_rules_that_start_with_id = do
                           a <- idToken
                           b <- decl_or_atrib a 
                                 <|> array_attrib a
+                                <|> list_operation a
                                 <|> struct_attrib a 
                                 <|> (do (_, _, b) <- function_call a; c <- semiColonToken; return (b ++ [c]))
                           return b
@@ -311,6 +313,69 @@ array_attrib_recursive (_:dims) = do
     --
     return (coord:coords, (b:c) ++ (d:e))
 
+list_operation :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
+list_operation a = do
+    s <- getState; pos <- getPosition
+    let (Id a_name) = a
+    let (_, a_type, a_value, _) = lookup_var pos a_name s
+    case a_type of
+      List t -> (do
+        b <- periodToken
+        c <- idToken
+        let (Id c_name) = c
+        if (c_name == "add") then do
+          d <- openParenthesesToken
+          (e_type, e_value, _, e) <- exp_rule
+          f <- closeParenthesesToken
+          -- Type check
+          s' <- getState; pos' <- getPosition
+          type_check pos' s' check_eq_deep t e_type
+          --
+          when (get_flag s') $ do
+            let new_value = e_value `append_to_list` a_value
+            updateState(symtable_update_variable (a, new_value, dontChangeFunctionBody))
+          --
+          g <- semiColonToken
+          return ((a:b:c:d:e) ++ [f, g])
+        else
+          if (c_name == "pop") then do
+            d <- openParenthesesToken
+            e <- closeParenthesesToken
+            --
+            s' <- getState; pos' <- getPosition
+            when (get_flag s') $ do
+                case pop_list a_value of
+                  ErrorToken -> error_msg "Pop attempt with empty list ! Line: % Column: %" [showLine pos', showColumn pos']
+                  new_value -> updateState(symtable_update_variable (a, new_value, dontChangeFunctionBody))
+            --
+            f <- semiColonToken
+            return (a:b:c:d:e:[f])
+          else
+            error_msg "Non-list operation '%' is not allowed ! Line: % Column: %" [showLine pos, showColumn pos])
+        <|> (do
+        b <- openSquareBracketsToken
+        (c_type, c_value, _, c) <- exp_rule
+        -- Type check
+        s' <- getState; pos' <- getPosition
+        type_check pos' s' check_eq_deep Int c_type
+        --
+        d <- closeSquareBracketsToken
+        let (IntLiteral c_value') = c_value
+        --
+        e <- assignToken
+        (f_type, f_value, _, f) <- exp_rule
+        --
+        s'' <- getState; pos'' <- getPosition
+        type_check pos'' s'' check_eq_deep t f_type
+        --
+        when (get_flag s'') $ do
+          case update_list c_value' a_value f_value of
+            ErrorToken -> error_msg "Index out of bounds ! Line: % Column: %" [showLine pos'', showColumn pos'']
+            new_value -> updateState (symtable_update_variable (a, new_value, dontChangeFunctionBody))
+        g <- semiColonToken
+        return ((a:b:c) ++ (d:e:f) ++ [g]))
+      _ -> fail "non-list operation"
+
 stmts :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 stmts = do
         (a_returned, a_type, a) <- stmt
@@ -340,7 +405,7 @@ stmts_op = (do a <- stmts; return a) <|> (return (False, Unit, []))
 
 -- (has_returned, return_type, tokens)
 stmt :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
-stmt = (do a <- decl_or_atrib_or_access_or_call; return (False, Unit, a))
+stmt = (do a <- stmt_rules_that_start_with_id; return (False, Unit, a))
    <|> (do a <- struct_decl; return (False, Unit, a))
    <|> (do a <- structures; return a)
    <|> (do -- Return
@@ -560,13 +625,15 @@ exp_base = (do (a_type, a_value, a) <- uminus_remaining; return (a_type, a_value
 
 term :: ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 term = (do (_type, value, a) <- literal; return (_type, value, noFuncBody, [a]))
-      <|> (do s <- getState; a <- struct_access_or_function_call (get_current_scope s); return a)
+      <|> (do s <- getState; a <- exp_rules_that_start_with_id (get_current_scope s); return a)
 
-struct_access_or_function_call :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
-struct_access_or_function_call vars = do
+-- struct_access, id, function call, list access, type constructor ...
+exp_rules_that_start_with_id :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+exp_rules_that_start_with_id vars = do
       a <- idToken
       b <- (do b <- type_cons_rule a; return b)
             <|> (do b <- array_access a; return b)
+            <|> (do b <- list_access a; return b)
             <|> (do (b_type, b_value, b) <- function_call a; return (b_type, b_value, noFuncBody, b))
             <|> (pre_struct_access a vars)
       return b
@@ -626,6 +693,7 @@ array_access a = do
         (Matrix _ dim) -> do
           (b_type, b_value, b_body, b) <- array_access_recursive a_value
           return (b_type, b_value, b_body, (a:b))
+        --(List _) -> do
         _ -> fail (replace '%' [a_name] "% was not a matrix or list")
 
 array_access_recursive :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
@@ -645,6 +713,31 @@ array_access_recursive matrix = do
       (e_type, e_value, e_body, e) <- (array_access_recursive matrix_value) <|> return (return_type, matrix_value, c_body, [])
       return (e_type, e_value, e_body, (b:c) ++ (d:e))
     _ -> return (return_type, matrix_value, c_body, (b:c) ++ [d])
+
+list_access :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+list_access a = do
+  s <- getState; pos <- getPosition
+  let (Id a_name) = a
+  let (_, a_type, a_value, _) = lookup_var pos a_name s
+  case a_type of
+    List t -> do
+      b <- openSquareBracketsToken
+      (c_type, c_value, _, c) <- exp_rule
+      -- Type check
+      s' <- getState; pos' <- getPosition
+      type_check pos' s' check_eq_deep Int c_type
+      --
+      if get_flag s' then do
+        let (IntLiteral c_value') = c_value
+        case access_list c_value' a_value of
+          ErrorToken -> error_msg "Index out of bounds ! Line: % Column: %" [showLine pos', showColumn pos']
+          return_value -> do
+            d <- closeSquareBracketsToken
+            return (t, return_value, [], (a:b:c) ++ [d])
+      else do
+        d <- closeSquareBracketsToken
+        return (t, get_default_value pos' s' t, [], (a:b:c) ++ [d])
+    _ -> fail "non-list access"
 
 function_call :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 function_call a = do
@@ -1186,12 +1279,16 @@ types =
   <|> (do a <- boolToken; return (a, [a]))
   <|> (do a <- typeToken; return (a, [a]))
   <|> (do a <- unitToken; return (a, [a]))
-  <|> (do
+  <|> (do -- Matrix
     a <- matrixToken
     (b_type, b) <- read_type_parameter <|> (return (Unit, []))
     (c_dim, c) <- read_matrix_dimensions
     return (Matrix b_type c_dim, (a:b) ++ c))
-  <|> (do
+  <|> (do -- List
+    a <- listToken
+    (b_type, b) <- read_type_parameter <|> (return (Unit, []))
+    return (List b_type, a:b))
+  <|> (do -- Id
     (Id name) <- idToken
     --
     s <- getState; pos <- getPosition

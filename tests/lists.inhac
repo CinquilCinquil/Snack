@@ -1,0 +1,10 @@
+types:
+decls:
+    l : list<int>;
+main:
+    -- l := [1, 2, 3]; -- not implemented, sorry
+    for i : int in [0..1] step 1 {
+        l.add(1 + 1);
+    }
+    l[1] := 5;
+    spit l;

@@ -82,9 +82,10 @@ tokens :-
   unit                                  { \p _ -> (getLC p, Unit) }
   struct                                { \p s -> (getLC p, Struct) }
   matrix                                { \p s -> (getLC p, Matrix Unit []) }
+  list                                { \p s -> (getLC p, List Unit) }
   -- Literals
-  --  O	                                    { \p s -> (getLC p, NatLiteral 0) }
-  --S$D+	                                { \p s -> (getLC p, NatLiteral $ 1 + (read (tail s))) }
+  --  O	                                { \p s -> (getLC p, NatLiteral 0) }
+  --S$D+	                              { \p s -> (getLC p, NatLiteral $ 1 + (read (tail s))) }
   "!"                                   { \p s -> (getLC p, UnitLiteral ()) }
   $D+	                                  { \p s -> (getLC p, IntLiteral (read s)) }
   ($D+"."$D+)(e[\+\-]$D$D)?	            { \p s -> (getLC p, FloatLiteral (read s)) }
@@ -178,6 +179,7 @@ data Token =
   Unit |
   Struct |
   Matrix Token [Int] |
+  List Token |
   -- Literals
   NatLiteral Int |
   IntLiteral Int |
@@ -188,6 +190,7 @@ data Token =
   UnitLiteral () |
   StructLiteral [(String, Token, Token, [InfoAndToken])] | -- [(Name, Type, Value, FunctionBody)]
   MatrixLiteral Token [Token] |
+  ListLiteral Token [Token] |
   TypeLiteral String [Token] [Token] | -- Constructor name, args, params
   -- Others
   Id String |
