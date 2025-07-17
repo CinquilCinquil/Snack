@@ -6,10 +6,13 @@ decls:
     m1 : int;
 
 main:
-    spit "Digite as dimensões da primeira matriz:";
+    spit "Type the dimensions of the first matrix:";
     eat n0;
     eat m0;
     a : matrix<int>(n0, m0);
+    if (not (n0 = 0) and not (m0 = 0)){
+        spit "Type the values line per line:";
+    }
 
     x : int;
     for i : int in [0..n0) step 1 {
@@ -19,11 +22,15 @@ main:
         }   
     }
 
-    spit "Digite as dimensões da segunda matriz:";
+    spit "Type the dimensions of the second matrix:";
     eat n1;
     eat m1;
-    b : matrix<int>(n1, m1);
+    b : matrix<int>(n1, m1);    
 
+    if (not (n1 = 0) and not (m1 = 0)){
+        spit "Type the values line per line:";
+    }
+    
     for i : int in [0..n1) step 1 {
         for j : int in [0..m1) step 1 {
             eat x;
