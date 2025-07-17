@@ -329,7 +329,7 @@ list_operation a = do
           f <- closeParenthesesToken
           -- Type check
           s' <- getState; pos' <- getPosition
-          type_check pos' s' check_eq_deep t e_type
+          type_check pos' s' check_eq_deep t (head $ convert_id_to_type s' [e_type])
           --
           when (get_flag s') $ do
             let new_value = e_value `append_to_list` a_value
@@ -751,8 +751,8 @@ function_call a = do
   let func_code' = condense_extensive_types func_code
   let (func_params, ref_params, func_params_types, func_body) = get_params func_code'
   let c_names = get_arg_names (remove_exp_from_args 0 False [] c)
-  let func_params_types' = convert_id_to_type_literal s func_params_types
-  let c_types' = convert_id_to_type_literal s c_types
+  let func_params_types' = convert_id_to_type s func_params_types
+  let c_types' = convert_id_to_type s c_types
   check_param_amount pos func_params c_types
   check_types (type_check pos s check_eq_deep) c_types' func_params_types'
   check_correct_ref_values pos func_params ref_params c_names

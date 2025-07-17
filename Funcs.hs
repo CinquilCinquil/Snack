@@ -855,15 +855,15 @@ get_dimensions_from_tokens (CloseParentheses:xs) = []
 get_dimensions_from_tokens (Comma:xs) = get_dimensions_from_tokens xs
 get_dimensions_from_tokens ((IntLiteral x):xs) = x:(get_dimensions_from_tokens xs)
 
-convert_id_to_type_literal :: MyState -> [Token] -> [Token]
-convert_id_to_type_literal _ [] = []
-convert_id_to_type_literal s (x:xs) = do
+convert_id_to_type :: MyState -> [Token] -> [Token]
+convert_id_to_type _ [] = []
+convert_id_to_type s (x:xs) = do
   case x of
     (Id name) -> do
       case lookup_type s name of
-        ("", [], []) -> (x:(convert_id_to_type_literal s xs))
-        (type_name, type_params, _) -> ((Type type_name (map (\s -> Id s) type_params)):(convert_id_to_type_literal s xs))
-    _ -> (x:(convert_id_to_type_literal s xs))
+        ("", [], []) -> (x:(convert_id_to_type s xs))
+        (type_name, type_params, _) -> ((Type type_name (map (\s -> Id s) type_params)):(convert_id_to_type s xs))
+    _ -> (x:(convert_id_to_type s xs))
 
 matrix_sum :: SourcePos -> Int -> [Token] -> [Token] -> [Token]
 matrix_sum pos sig a b = do
