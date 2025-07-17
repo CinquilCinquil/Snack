@@ -23,7 +23,7 @@ program = do
             e <- mainToken -- main:
             (_, _, f) <- stmts
             eof
-            liftIO (putStrLn "---------\nParsing Complete: ")
+            print_debug "---------\nParsing Complete: "
             return $ (b:t) ++ [c] ++ d ++ [e] ++ f
 
 parse_block :: Bool -> ParsecT [InfoAndToken] MyState IO (MyState, [Token])
@@ -64,7 +64,7 @@ type_decl = do
       (type_forms, d) <- forms_opt type_params
       --
       updateState(symtable_update_type a_name type_forms)
-      liftIO (putStrLn "Type declaration: ")
+      print_debug "Type declaration: "
       print_state
       --
       return ((a:b) ++ (c:d))
@@ -178,20 +178,20 @@ declaration = (do
               --
               s <- getState; pos <- getPosition
               updateState (symtable_insert_variable (b, d_type, get_default_value pos s d_type, []))
-              liftIO (putStrLn "declaration:")
+              print_debug  "declaration:"
               print_state
               --
               return ((b:c:d) ++ [e]))
               <|>
               (do
               a <- fun_decl
-              liftIO (putStrLn "fun_declaration:")
+              print_debug  "fun_declaration:"
               print_state
               return a)
               <|>
               (do
               a <- struct_decl
-              liftIO (putStrLn "struct_declaration:")
+              print_debug "struct_declaration:"
               print_state
               return a)
 
@@ -516,7 +516,7 @@ params func_name = do
   s' <- getState; pos' <- getPosition
   --let var_value = if d == [] then get_default_value pos' s' c_type else d_value -- feature removed from language due to time :(
   --updateState (symtable_update_variable (a, var_value, dontChangeFunctionBody))
-  liftIO (putStrLn "params_declaration:")
+  print_debug "params_declaration:"
   print_state
   --
   (e_types, e_values, e) <- params_op func_name
@@ -1084,7 +1084,7 @@ for_declaration = do
               s <- getState; pos <- getPosition
               updateState (symtable_insert_variable (b, d_type, get_default_value pos s d_type, []))
               --
-              liftIO (putStrLn "for_declaration:")
+              print_debug "for_declaration:"
               print_state
               return (d_type, b:c:d)
 
@@ -1369,6 +1369,6 @@ main = do
       result <- runParserT program initialState "Parsing error!" tokensAndInfo
       case result of
       { Left err -> print err;
-        Right ans -> print ans
+        Right ans -> if debug_flag then print ans else return ()
       }
     _ -> putStrLn "Please inform the input filename. Closing application..."

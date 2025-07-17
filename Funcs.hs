@@ -938,10 +938,15 @@ dontChangeFunctionBody = [((0, 0), NoneToken)] :: [(InfoAndToken)]
 noFuncBody = [((0, 0), NoneToken)] :: [(InfoAndToken)]
 dontChangeValue = NoneToken
 
+debug_flag = False
+
 print_state :: ParsecT [InfoAndToken] MyState IO ()
-print_state = do
-              s <- getState
-              liftIO (putStrLn $ "The State: " ++ (show s) ++ ". ")
+print_state = when debug_flag $ do
+      s <- getState
+      liftIO (putStrLn $ "The State: " ++ (show s) ++ ". ")
+
+print_debug :: String -> ParsecT [InfoAndToken] MyState IO ()
+print_debug msg = when debug_flag $ do liftIO (putStrLn msg)
 
 var_error = ("", ErrorToken, ErrorToken, [])
 
