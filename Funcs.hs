@@ -381,6 +381,7 @@ get_value_from_exp :: [Token] -> MyState -> Token
 get_value_from_exp expression [(vars, sk, ts, sp, pc, sn, flag)] = IntLiteral 0
 
 get_default_value :: SourcePos -> MyState -> Token -> Token
+get_default_value pos s (List t) = ListLiteral t []
 get_default_value pos s (Matrix t dim) = MatrixLiteral t (initialize_matrix pos s t dim)
 get_default_value pos s (Id name) = do
   case lookup_type s name of
@@ -460,13 +461,36 @@ type_check_with_msg extra_msg pos state check var_name _type = type_check' extra
 
 type_check' :: String -> SourcePos -> MyState -> (String -> SourcePos -> MyType -> MyType -> Bool) -> Token -> Token -> ParsecT [InfoAndToken] MyState IO ()
 -- TODO: _type (Id var_name) case 
-type_check' extra_msg pos _ check (Id name1) (Id name2) = if check extra_msg pos (Id name1) (Id name2) then return () else error ""
+type_check' extra_msg pos state check (Id name1) (Id name2) = do -- assumes they are type names at first
+  case lookup_type_constructor state name1 of
+    ("", _, _) -> do
+      -- CASE: one of them isn't a type name
+      let (_, var_type, _, _) = lookup_var pos name1 state
+      if check extra_msg pos var_type (Id name2) then return () else error ""
+    _ -> do
+      case lookup_type_constructor state name2 of
+        ("", _, _) -> do
+          -- CASE: one of them isn't a type name
+          let (_, var_type, _, _) = lookup_var pos name1 state
+          if check extra_msg pos var_type (Id name2) then return () else error ""
+          --
+          -- CASE: they are both type names
+        _ -> if check extra_msg pos (Id name1) (Id name2) then return () else error ""
+--
 type_check' extra_msg pos state check (Id var_name) _type = do
     let (_, var_type, _, _) = lookup_var pos var_name state
     if check extra_msg pos var_type _type then return () else error ""
-type_check' extra_msg pos state check type1 type2 = if check extra_msg pos type1 type2 then return () else error ""
+type_check' extra_msg pos state check type1 type2 = do
+  if check extra_msg pos type1 type2 then return () else error ""
+
+-- check_eq does not take into account the dimensions of a matrix, this one does
+check_eq_deep :: String -> SourcePos -> MyType -> MyType -> Bool
+check_eq_deep extra_msg pos t1 t2 = if t1 == t2 then True
+else error_msg "% Types '%' and '%' do not match! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
 
 check_eq :: String -> SourcePos -> MyType -> MyType -> Bool
+check_eq extra_msg pos (Matrix t1 _) (Matrix t2 _) = if t1 == t2 then True
+else error_msg "% Types '%' and '%' do not match! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
 check_eq extra_msg pos t1 t2 = if t1 == t2 then True
 else error_msg "% Types '%' and '%' do not match! Line: % Column: %" [extra_msg, show t1, show t2, showLine pos, showColumn pos]
 
@@ -499,6 +523,7 @@ isArithm Int = True
 isArithm Float = True
 isArithm TString = True
 isArithm (Matrix t _) = isArithm t
+isArithm (List t) = isArithm t
 isArithm _ = False 
 
 -- TODO: support type equivalence!?
@@ -535,6 +560,11 @@ doOpOnTokens pos op (MatrixLiteral t x) (MatrixLiteral _ y)
   | op == Mult = MatrixLiteral t (matrix_mult pos x y)
   | isEq op = BoolLiteral (doOpEq x y op)
   | otherwise = error_msg "Operation '%' is not supported for matrices! Line: % Column: %" [show op, showLine pos, showColumn pos]
+-- 
+doOpOnTokens pos op (ListLiteral t x) (ListLiteral _ y)
+  | op == Concat = ListLiteral t (x ++ y)
+  | isEq op = BoolLiteral (doOpEq x y op)
+  | otherwise = error_msg "Operation '%' is not supported for lists! Line: % Column: %" [show op, showLine pos, showColumn pos]
 -- ...
 
 doOpOnToken :: SourcePos -> Token -> Token -> Token
@@ -546,6 +576,8 @@ doOpOnToken pos (StringLiteral _) op =
   error_msg "Operation '%' is not supported for strings! Line: % Column: %" [show op, showLine pos, showColumn pos]
 doOpOnToken pos (MatrixLiteral _ _) op = 
   error_msg  "Operation '%' is not supported for matrices! Line: % Column: %" [show op, showLine pos, showColumn pos]
+doOpOnToken pos (ListLiteral _ _) op = 
+  error_msg  "Operation '%' is not supported for lists! Line: % Column: %" [show op, showLine pos, showColumn pos]
 
 isEq :: Token -> Bool
 isEq Equals = True
@@ -615,10 +647,11 @@ showLiteral (UnitLiteral x) = show x
 showLiteral (TypeLiteral cons_name args params) = do
   let args_str = foldl (++) "" $ map (\s -> showLiteral s ++ ", ") args
   cons_name ++ "(" ++ args_str ++ ")"
-showLiteral (MatrixLiteral t content) = 
+showLiteral (MatrixLiteral _ content) = 
   case content of 
     [] -> "()"
     _ -> show_matrix "" content
+showLiteral (ListLiteral _ content) = show (map showLiteral content)
 showLiteral NoneToken = "No Value"
 showLiteral x = show x
 
@@ -690,6 +723,7 @@ to_bool (StringLiteral x) = do
     to_bool $ CharLiteral (head x)
   else
     error_msg "Invalid conversion of '%' to Bool" [x]
+to_bool x = error_msg "Invalid conversion of '%' to Bool" [show x]
 
 to_char :: Token -> Token
 to_char (NatLiteral x) = CharLiteral (intToDigit x)
@@ -699,6 +733,7 @@ to_char (BoolLiteral x) = CharLiteral (if x then 'T' else 'F')
 to_char (CharLiteral x) = CharLiteral x
 to_char (StringLiteral x) = do
   if length x == 1 then CharLiteral (head x) else error_msg "Invalid conversion of '%' to Char" [x] 
+to_char x = error_msg "Invalid conversion of '%' to Char" [show x]
 
 get_literal :: MyType -> Value -> Token
 --get_literal Nat v = to_nat v
@@ -721,6 +756,7 @@ is_type_name _ _ TChar = True
 is_type_name _ _ TString = True
 is_type_name _ _ Unit = True
 is_type_name _ _ (Matrix _ _) = True
+is_type_name _ _ (List _) = True
 is_type_name pos s (Id name) =
   case lookup_type s name of
     ("", _, _) -> error_msg "dame4" [] -- TODO: usar o pos
@@ -819,15 +855,15 @@ get_dimensions_from_tokens (CloseParentheses:xs) = []
 get_dimensions_from_tokens (Comma:xs) = get_dimensions_from_tokens xs
 get_dimensions_from_tokens ((IntLiteral x):xs) = x:(get_dimensions_from_tokens xs)
 
-convert_id_to_type_literal :: MyState -> [Token] -> [Token]
-convert_id_to_type_literal _ [] = []
-convert_id_to_type_literal s (x:xs) = do
+convert_id_to_type :: MyState -> [Token] -> [Token]
+convert_id_to_type _ [] = []
+convert_id_to_type s (x:xs) = do
   case x of
     (Id name) -> do
       case lookup_type s name of
-        ("", [], []) -> (x:(convert_id_to_type_literal s xs))
-        (type_name, type_params, _) -> ((Type type_name (map (\s -> Id s) type_params)):(convert_id_to_type_literal s xs))
-    _ -> (x:(convert_id_to_type_literal s xs))
+        ("", [], []) -> (x:(convert_id_to_type s xs))
+        (type_name, type_params, _) -> ((Type type_name (map (\s -> Id s) type_params)):(convert_id_to_type s xs))
+    _ -> (x:(convert_id_to_type s xs))
 
 matrix_sum :: SourcePos -> Int -> [Token] -> [Token] -> [Token]
 matrix_sum pos sig a b = do
@@ -872,16 +908,45 @@ get_n_column' :: Int -> [Token] -> Token
 get_n_column' 0 (x:xs) = x
 get_n_column' n (x:xs) = get_n_column' (n - 1) xs
 
+-- Assumes type is already checked
+append_to_list :: Token -> Token -> Token
+append_to_list a (ListLiteral t b) = ListLiteral t (reverse (a : reverse b))
+
+pop_list :: Token -> Token
+pop_list (ListLiteral t []) = ErrorToken
+pop_list (ListLiteral t list) = (ListLiteral t (reverse $ tail $ reverse list))
+
+access_list :: Int -> Token -> Token
+access_list _ (ListLiteral t []) = ErrorToken
+access_list 0 (ListLiteral _ list) = head list
+access_list n (ListLiteral t (x:xs)) = if n < 0 then ErrorToken else access_list (n - 1) (ListLiteral t xs)
+
+update_list :: Int -> Token -> Token -> Token
+update_list n (ListLiteral t list) new_value = 
+  case update_list' n list new_value of
+    [ErrorToken] -> ErrorToken
+    new_list -> ListLiteral t new_list
+
+update_list' :: Int -> [Token] -> Token -> [Token]
+update_list' _ [] _ = [ErrorToken]
+update_list' 0 (x:xs) new_value = (new_value:xs)
+update_list' n (x:xs) new_value = if n < 0 then [ErrorToken] else x : update_list' (n - 1) xs new_value
+
 ----------------- Others -----------------
 
 dontChangeFunctionBody = [((0, 0), NoneToken)] :: [(InfoAndToken)]
 noFuncBody = [((0, 0), NoneToken)] :: [(InfoAndToken)]
 dontChangeValue = NoneToken
 
+debug_flag = False
+
 print_state :: ParsecT [InfoAndToken] MyState IO ()
-print_state = do
-              s <- getState
-              liftIO (putStrLn $ "The State: " ++ (show s) ++ ". ")
+print_state = when debug_flag $ do
+      s <- getState
+      liftIO (putStrLn $ "The State: " ++ (show s) ++ ". ")
+
+print_debug :: String -> ParsecT [InfoAndToken] MyState IO ()
+print_debug msg = when debug_flag $ do liftIO (putStrLn msg)
 
 var_error = ("", ErrorToken, ErrorToken, [])
 

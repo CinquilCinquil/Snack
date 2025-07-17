@@ -98,6 +98,7 @@ boolToken = tokenParser TBool
 unitToken = tokenParser Unit
 structToken = tokenParser Struct
 matrixToken = tokenParser (Matrix Unit [])
+listToken = tokenParser (List Unit)
 
 -- Literals
 

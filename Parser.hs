@@ -23,7 +23,7 @@ program = do
             e <- mainToken -- main:
             (_, _, f) <- stmts
             eof
-            liftIO (putStrLn "---------\nParsing Complete: ")
+            print_debug "---------\nParsing Complete: "
             return $ (b:t) ++ [c] ++ d ++ [e] ++ f
 
 parse_block :: Bool -> ParsecT [InfoAndToken] MyState IO (MyState, [Token])
@@ -64,7 +64,7 @@ type_decl = do
       (type_forms, d) <- forms_opt type_params
       --
       updateState(symtable_update_type a_name type_forms)
-      liftIO (putStrLn "Type declaration: ")
+      print_debug "Type declaration: "
       print_state
       --
       return ((a:b) ++ (c:d))
@@ -178,30 +178,32 @@ declaration = (do
               --
               s <- getState; pos <- getPosition
               updateState (symtable_insert_variable (b, d_type, get_default_value pos s d_type, []))
-              liftIO (putStrLn "declaration:")
+              print_debug  "declaration:"
               print_state
               --
               return ((b:c:d) ++ [e]))
               <|>
               (do
               a <- fun_decl
-              liftIO (putStrLn "fun_declaration:")
+              print_debug  "fun_declaration:"
               print_state
               return a)
               <|>
               (do
               a <- struct_decl
-              liftIO (putStrLn "struct_declaration:")
+              print_debug "struct_declaration:"
               print_state
               return a)
 
 ----------------- Main -----------------
 
-decl_or_atrib_or_access_or_call :: ParsecT [InfoAndToken] MyState IO ([Token])
-decl_or_atrib_or_access_or_call = do
+-- decl, attrib, list operations, struct attrib, function call, ...
+stmt_rules_that_start_with_id :: ParsecT [InfoAndToken] MyState IO ([Token])
+stmt_rules_that_start_with_id = do
                           a <- idToken
                           b <- decl_or_atrib a 
                                 <|> array_attrib a
+                                <|> list_operation a
                                 <|> struct_attrib a 
                                 <|> (do (_, _, b) <- function_call a; c <- semiColonToken; return (b ++ [c]))
                           return b
@@ -218,7 +220,7 @@ init_or_decl id_token = (do -- Assignment
                 (exp_type, exp_value, _, b) <- exp_rule
                 --
                 s <- getState; pos <- getPosition
-                type_check pos s check_eq id_token exp_type
+                type_check pos s check_eq_deep id_token exp_type
                 when (get_flag s) $ do
                   updateState (symtable_update_variable (id_token, exp_value, dontChangeFunctionBody))
                 --
@@ -233,7 +235,7 @@ init_or_decl id_token = (do -- Assignment
                 updateState (symtable_insert_variable (id_token, b_type, get_default_value pos s b_type, []))
                 --
                 s' <- getState; pos' <- getPosition
-                type_check pos' s' check_eq id_token exp_type
+                type_check pos' s' check_eq_deep id_token exp_type
                 let var_value = if c == [] then get_default_value pos' s' b_type else exp_value
                 when (get_flag s') $ do
                   updateState (symtable_update_variable (id_token, var_value, dontChangeFunctionBody))
@@ -283,7 +285,7 @@ array_attrib a = do
         e <- semiColonToken
         -- Type check
         s <- getState; pos' <- getPosition
-        type_check pos' s check_eq matrix_type d_type
+        type_check pos' s check_eq_deep matrix_type d_type
         --
         let new_matrix_value = update_matrix_value pos' a_value coords d_value
         when (get_flag s) $ do
@@ -311,6 +313,69 @@ array_attrib_recursive (_:dims) = do
     --
     return (coord:coords, (b:c) ++ (d:e))
 
+list_operation :: Token -> ParsecT [InfoAndToken] MyState IO ([Token])
+list_operation a = do
+    s <- getState; pos <- getPosition
+    let (Id a_name) = a
+    let (_, a_type, a_value, _) = lookup_var pos a_name s
+    case a_type of
+      List t -> (do
+        b <- periodToken
+        c <- idToken
+        let (Id c_name) = c
+        if (c_name == "add") then do
+          d <- openParenthesesToken
+          (e_type, e_value, _, e) <- exp_rule
+          f <- closeParenthesesToken
+          -- Type check
+          s' <- getState; pos' <- getPosition
+          type_check pos' s' check_eq_deep t (head $ convert_id_to_type s' [e_type])
+          --
+          when (get_flag s') $ do
+            let new_value = e_value `append_to_list` a_value
+            updateState(symtable_update_variable (a, new_value, dontChangeFunctionBody))
+          --
+          g <- semiColonToken
+          return ((a:b:c:d:e) ++ [f, g])
+        else
+          if (c_name == "pop") then do
+            d <- openParenthesesToken
+            e <- closeParenthesesToken
+            --
+            s' <- getState; pos' <- getPosition
+            when (get_flag s') $ do
+                case pop_list a_value of
+                  ErrorToken -> error_msg "Pop attempt with empty list ! Line: % Column: %" [showLine pos', showColumn pos']
+                  new_value -> updateState(symtable_update_variable (a, new_value, dontChangeFunctionBody))
+            --
+            f <- semiColonToken
+            return (a:b:c:d:e:[f])
+          else
+            error_msg "Non-list operation '%' is not allowed ! Line: % Column: %" [showLine pos, showColumn pos])
+        <|> (do
+        b <- openSquareBracketsToken
+        (c_type, c_value, _, c) <- exp_rule
+        -- Type check
+        s' <- getState; pos' <- getPosition
+        type_check pos' s' check_eq_deep Int c_type
+        --
+        d <- closeSquareBracketsToken
+        let (IntLiteral c_value') = c_value
+        --
+        e <- assignToken
+        (f_type, f_value, _, f) <- exp_rule
+        --
+        s'' <- getState; pos'' <- getPosition
+        type_check pos'' s'' check_eq_deep t f_type
+        --
+        when (get_flag s'') $ do
+          case update_list c_value' a_value f_value of
+            ErrorToken -> error_msg "Index out of bounds ! Line: % Column: %" [showLine pos'', showColumn pos'']
+            new_value -> updateState (symtable_update_variable (a, new_value, dontChangeFunctionBody))
+        g <- semiColonToken
+        return ((a:b:c) ++ (d:e:f) ++ [g]))
+      _ -> fail "non-list operation"
+
 stmts :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
 stmts = do
         (a_returned, a_type, a) <- stmt
@@ -329,7 +394,7 @@ stmts = do
           --
           return (returned, resulting_type, a ++ b)
         else do 
-          type_check pos s check_eq a_type b_type
+          type_check pos s check_eq_deep a_type b_type
           --
           updateState(set_flag original_flag)
           --
@@ -340,7 +405,7 @@ stmts_op = (do a <- stmts; return a) <|> (return (False, Unit, []))
 
 -- (has_returned, return_type, tokens)
 stmt :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
-stmt = (do a <- decl_or_atrib_or_access_or_call; return (False, Unit, a))
+stmt = (do a <- stmt_rules_that_start_with_id; return (False, Unit, a))
    <|> (do a <- struct_decl; return (False, Unit, a))
    <|> (do a <- structures; return a)
    <|> (do -- Return
@@ -421,7 +486,7 @@ fun_decl = do
         --
         let (Id func_name) = b
         s <- getState; pos <- getPosition
-        type_check_with_msg (replace '%' [func_name] "In function '%' return: ") pos s check_eq h_type g_type
+        type_check_with_msg (replace '%' [func_name] "In function '%' return: ") pos s check_eq_deep h_type g_type
         --
         updateState (remove_current_scope_name)
         updateState (set_flag True)
@@ -451,7 +516,7 @@ params func_name = do
   s' <- getState; pos' <- getPosition
   --let var_value = if d == [] then get_default_value pos' s' c_type else d_value -- feature removed from language due to time :(
   --updateState (symtable_update_variable (a, var_value, dontChangeFunctionBody))
-  liftIO (putStrLn "params_declaration:")
+  print_debug "params_declaration:"
   print_state
   --
   (e_types, e_values, e) <- params_op func_name
@@ -468,7 +533,7 @@ struct_decl = do
             a <- structToken
             b <- idToken
             --
-            updateState (symtable_insert_variable (b, Struct, StructLiteral [], []))
+            updateState (symtable_insert_variable (b, b, StructLiteral [], []))
             --
             updateState (add_current_scope_name "struct")
             --
@@ -560,13 +625,15 @@ exp_base = (do (a_type, a_value, a) <- uminus_remaining; return (a_type, a_value
 
 term :: ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
 term = (do (_type, value, a) <- literal; return (_type, value, noFuncBody, [a]))
-      <|> (do s <- getState; a <- struct_access_or_function_call (get_current_scope s); return a)
+      <|> (do s <- getState; a <- exp_rules_that_start_with_id (get_current_scope s); return a)
 
-struct_access_or_function_call :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
-struct_access_or_function_call vars = do
+-- struct_access, id, function call, list access, type constructor ...
+exp_rules_that_start_with_id :: [Var] -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+exp_rules_that_start_with_id vars = do
       a <- idToken
       b <- (do b <- type_cons_rule a; return b)
             <|> (do b <- array_access a; return b)
+            <|> (do b <- list_access a; return b)
             <|> (do (b_type, b_value, b) <- function_call a; return (b_type, b_value, noFuncBody, b))
             <|> (pre_struct_access a vars)
       return b
@@ -626,6 +693,7 @@ array_access a = do
         (Matrix _ dim) -> do
           (b_type, b_value, b_body, b) <- array_access_recursive a_value
           return (b_type, b_value, b_body, (a:b))
+        --(List _) -> do
         _ -> fail (replace '%' [a_name] "% was not a matrix or list")
 
 array_access_recursive :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
@@ -646,6 +714,31 @@ array_access_recursive matrix = do
       return (e_type, e_value, e_body, (b:c) ++ (d:e))
     _ -> return (return_type, matrix_value, c_body, (b:c) ++ [d])
 
+list_access :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, FunctionBody, [Token])
+list_access a = do
+  s <- getState; pos <- getPosition
+  let (Id a_name) = a
+  let (_, a_type, a_value, _) = lookup_var pos a_name s
+  case a_type of
+    List t -> do
+      b <- openSquareBracketsToken
+      (c_type, c_value, _, c) <- exp_rule
+      -- Type check
+      s' <- getState; pos' <- getPosition
+      type_check pos' s' check_eq_deep Int c_type
+      --
+      if get_flag s' then do
+        let (IntLiteral c_value') = c_value
+        case access_list c_value' a_value of
+          ErrorToken -> error_msg "Index out of bounds ! Line: % Column: %" [showLine pos', showColumn pos']
+          return_value -> do
+            d <- closeSquareBracketsToken
+            return (t, return_value, [], (a:b:c) ++ [d])
+      else do
+        d <- closeSquareBracketsToken
+        return (t, get_default_value pos' s' t, [], (a:b:c) ++ [d])
+    _ -> fail "non-list access"
+
 function_call :: Token -> ParsecT [InfoAndToken] MyState IO (MyType, Value, [Token])
 function_call a = do
   b <- openParenthesesToken
@@ -658,10 +751,10 @@ function_call a = do
   let func_code' = condense_extensive_types func_code
   let (func_params, ref_params, func_params_types, func_body) = get_params func_code'
   let c_names = get_arg_names (remove_exp_from_args 0 False [] c)
-  let func_params_types' = convert_id_to_type_literal s func_params_types
-  let c_types' = convert_id_to_type_literal s c_types
+  let func_params_types' = convert_id_to_type s func_params_types
+  let c_types' = convert_id_to_type s c_types
   check_param_amount pos func_params c_types
-  check_types (type_check pos s check_eq) c_types' func_params_types'
+  check_types (type_check pos s check_eq_deep) c_types' func_params_types'
   check_correct_ref_values pos func_params ref_params c_names
   -- Semantics
   let is_executing = get_flag s
@@ -910,7 +1003,7 @@ if_rule = do
           let resulting_type = (if c_type /= d_type then (if c_type == Unit then d_type else c_type) else c_type)
           return (returned, resulting_type, tokens)
         else do
-          type_check_with_msg "In If-Else return: " pos s check_eq c_type d_type
+          type_check_with_msg "In If-Else return: " pos s check_eq_deep c_type d_type
           return (returned, c_type, tokens)
 
 else_op :: ParsecT [InfoAndToken] MyState IO (Bool, MyType, [Token])
@@ -939,8 +1032,8 @@ for_rule = do
     (f_type, f_value, _, f) <- exp_rule -- WARNING: step semantics is executed even if the block isn't
     -- Type check
     s <- getState; pos <- getPosition
-    type_check pos s check_eq b_type d_type
-    type_check pos s check_eq b_type f_type
+    type_check pos s check_eq_deep b_type d_type
+    type_check pos s check_eq_deep b_type f_type
     -- Block
     updateState (set_flag False)
     (g_returned, g_type, g) <- block
@@ -975,7 +1068,7 @@ range_rule = (do -- Range with brackets
           e <- closeSquareBracketsToken <|> closeParenthesesToken
           --
           s <- getState; pos <- getPosition
-          type_check pos s check_eq b_type d_type
+          type_check pos s check_eq_deep b_type d_type
           when (not $ isArithm b_type) $ do error_msg "Range values must be Arithmetic! Line: % Column: %" [showLine pos, showColumn pos]
           --
           let op = if e == CloseSquareBrackets then Leq else Smaller
@@ -991,7 +1084,7 @@ for_declaration = do
               s <- getState; pos <- getPosition
               updateState (symtable_insert_variable (b, d_type, get_default_value pos s d_type, []))
               --
-              liftIO (putStrLn "for_declaration:")
+              print_debug "for_declaration:"
               print_state
               return (d_type, b:c:d)
 
@@ -1112,7 +1205,7 @@ form_blocks_start id_token = (do
     s <- getState; pos <- getPosition
     let (Id id_token_name) = id_token
     let (_, id_token_type, id_token_value, _) = lookup_var pos id_token_name s
-    type_check pos s check_eq id_token_type a_type
+    type_check pos s check_eq_deep id_token_type a_type
     --
     (b_returned, b_type, b) <- form_block id_token (id_token_value == a_value)
     --
@@ -1136,7 +1229,7 @@ form_block id_token case_matched = do
             (c_returned, c_type, c) <- form_blocks_opt id_token
             --
             s <- getState; pos <- getPosition
-            type_check_with_msg "In Match-Form return: " pos s check_eq b_type c_type
+            type_check_with_msg "In Match-Form return: " pos s check_eq_deep b_type c_type
             --
             updateState(set_flag original_flag)
             --
@@ -1186,12 +1279,16 @@ types =
   <|> (do a <- boolToken; return (a, [a]))
   <|> (do a <- typeToken; return (a, [a]))
   <|> (do a <- unitToken; return (a, [a]))
-  <|> (do
+  <|> (do -- Matrix
     a <- matrixToken
     (b_type, b) <- read_type_parameter <|> (return (Unit, []))
     (c_dim, c) <- read_matrix_dimensions
     return (Matrix b_type c_dim, (a:b) ++ c))
-  <|> (do
+  <|> (do -- List
+    a <- listToken
+    (b_type, b) <- read_type_parameter <|> (return (Unit, []))
+    return (List b_type, a:b))
+  <|> (do -- Id
     (Id name) <- idToken
     --
     s <- getState; pos <- getPosition
@@ -1272,6 +1369,6 @@ main = do
       result <- runParserT program initialState "Parsing error!" tokensAndInfo
       case result of
       { Left err -> print err;
-        Right ans -> print ans
+        Right ans -> if debug_flag then print ans else return ()
       }
     _ -> putStrLn "Please inform the input filename. Closing application..."
