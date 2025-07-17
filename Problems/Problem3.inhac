@@ -1,0 +1,54 @@
+types:
+decls:
+    n0 : int;
+    m0 : int;
+    n1 : int;
+    m1 : int;
+
+main:
+    spit "Type the dimensions of the first matrix:";
+    eat n0;
+    eat m0;
+    a : matrix<int>(n0, m0);
+    if (not (n0 = 0) and not (m0 = 0)){
+        spit "Type the values line per line:";
+    }
+
+    x : int;
+    for i : int in [0..n0) step 1 {
+        for j : int in [0..m0) step 1 {
+            eat x;
+            a[i][j] := x;
+        }   
+    }
+
+    spit "Type the dimensions of the second matrix:";
+    eat n1;
+    eat m1;
+    b : matrix<int>(n1, m1);    
+
+    if (not (n1 = 0) and not (m1 = 0)){
+        spit "Type the values line per line:";
+    }
+    
+    for i : int in [0..n1) step 1 {
+        for j : int in [0..m1) step 1 {
+            eat x;
+            b[i][j] := x;
+        }   
+    }
+
+    if((n0 = n1) and (m0 = m1)) {
+        spit "The sum of the two matrices: ";
+        spit (a+b);
+    } else {
+        spit "Not possible to sum these matrices";
+    }
+
+    if(m0 = n1) {
+        spit "The product of the two matrices:";
+        spit (a*b);
+    } else {
+        spit "Not possible to multiply the two matrices";
+    }
+

@@ -1,0 +1,8 @@
+types:
+decls:
+main:
+    x : float := 4.0;
+    y : float := 7.6;
+    c : int := 5;
+
+    spit (x ^ 2.0 + y + toFloat(c)); 
