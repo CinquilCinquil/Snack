@@ -53,20 +53,22 @@ decls:
 
     fun print_levels(raiz ? MyTree) : unit {
         index : int := 0;
-        queue : list[MyTree];
+        queue : list<MyTree>;
 
-        queue.push(raiz);
+        queue.add(raiz);
 
-        while(index < size(queue)) {
-            t : MyTree = queue[index];
+        queue_size : int := 1;
+        while(index < queue_size) {
+            t : MyTree := queue[index];
 
             match t with {
                 form Leaf():
                     --nothing
                 form Branch(x, left, right):
                     spit x;
-                    queue.push(left);
-                    queue.push(right);
+                    queue.add(left);
+                    queue.add(right);
+                    queue_size := queue_size + 2;
             }
 
             index := index + 1;
